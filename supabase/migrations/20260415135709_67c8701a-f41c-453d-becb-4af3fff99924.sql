@@ -1,0 +1,1 @@
+ALTER TABLE public.transactions ADD COLUMN due_date timestamp with time zone DEFAULT NULL;
