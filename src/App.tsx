@@ -85,8 +85,7 @@ function AppInner() {
 
 const App = () => {
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem storageKey="deynpro-theme">
-      <QueryClientProvider client={queryClient}>
+<ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} storageKey="deynpro-theme">      <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <Toaster />
           <Sonner />
