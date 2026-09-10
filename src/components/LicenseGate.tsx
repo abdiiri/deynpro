@@ -2,8 +2,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ShieldCheck, ShieldAlert, MessageCircle, Phone, Loader2 } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, MessageCircle, Phone, Loader2, ArrowLeft } from 'lucide-react';
 import { getLicenseStatus, activateLicense, whatsappSupportLink, SUPPORT_CONTACT, type LicenseStatus } from '@/lib/license';
+import { LandingPage } from '@/components/LandingPage';
 import { toast } from 'sonner';
 
 // Re-checks the license against the local clock every 5 minutes while the
@@ -39,13 +40,29 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
   const isValid = status?.activated && !status.expired;
 
   if (!isValid) {
-    return <ActivationScreen status={status} onActivated={refresh} />;
+    // Already a customer whose subscription lapsed — skip the pitch, go
+    // straight to renewal. The marketing/install page is for new visitors.
+    const isReturningExpired = status?.activated && status.expired;
+    if (isReturningExpired) {
+      return <ActivationScreen status={status} onActivated={refresh} />;
+    }
+    return <LandingGate status={status} onActivated={refresh} />;
   }
 
   return <>{children}</>;
 }
 
-function ActivationScreen({ status, onActivated }: { status: LicenseStatus | null; onActivated: () => void }) {
+function LandingGate({ status, onActivated }: { status: LicenseStatus | null; onActivated: () => void }) {
+  const [showActivation, setShowActivation] = useState(false);
+
+  if (!showActivation) {
+    return <LandingPage onContinue={() => setShowActivation(true)} />;
+  }
+
+  return <ActivationScreen status={status} onActivated={onActivated} onBack={() => setShowActivation(false)} />;
+}
+
+function ActivationScreen({ status, onActivated, onBack }: { status: LicenseStatus | null; onActivated: () => void; onBack?: () => void }) {
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [activateError, setActivateError] = useState<{ message: string; deviceLimitReached?: boolean; deviceLimit?: number } | null>(null);
@@ -82,6 +99,14 @@ function ActivationScreen({ status, onActivated }: { status: LicenseStatus | nul
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md shadow-lg">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground pt-4 pl-4 -mb-2"
+          >
+            <ArrowLeft size={13} /> Back
+          </button>
+        )}
         <CardHeader className="text-center pb-2">
           <div className="mx-auto mb-2 h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center">
             {wasExpired || deviceLimitReached ? <ShieldAlert className="text-destructive" size={26} /> : <ShieldCheck className="text-muted-foreground" size={26} />}

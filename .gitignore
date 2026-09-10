@@ -26,4 +26,4 @@ dist-ssr
 dist_electron
 
 # Never commit real env values — .env.example is the template
-*.env
+.env
