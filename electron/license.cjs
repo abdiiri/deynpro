@@ -17,14 +17,16 @@
 
 const crypto = require('crypto');
 const Store = require('electron-store');
+const db = require('./db.cjs');
 
 // ── Device-limit check-in (see license-admin/supabase/schema.sql) ─────────
-// Fill these in after you set up Supabase (see README) — same values as
-// VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY used by the web build. Leaving
-// them blank disables device-limit enforcement (activation works exactly
-// like before this feature existed).
-const SUPABASE_URL = '';
-const SUPABASE_ANON_KEY = '';
+// Same values as VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY in the
+// web build's .env — keep both in sync if you ever rotate/replace the
+// Supabase project. Leaving these blank disables device-limit enforcement
+// AND cross-device data continuity (activation works exactly like before
+// either feature existed).
+const SUPABASE_URL = 'https://xvsafbyctlclqqybqaio.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_ClIpkWOzhUYlXUxbKcQ4zg_rVIchwBI';
 const DEFAULT_DEVICE_LIMIT = 2;
 
 // Safe to keep in the shipped app — verifying a signature does not let
@@ -81,6 +83,90 @@ async function registerDevice(shopId, deviceId, deviceLabel, limit) {
     // this only ever runs once per new device anyway.
     return { ok: true, newDevice: false, error: 'offline_skip_check' };
   }
+}
+
+// ── Cross-device data continuity ("continue on this device?") ─────────────
+// Mirrors src/lib/cloudSnapshot.ts on the web build — same RPCs, same rule
+// (only a device_id already registered for that shop_id may push/pull, see
+// license-admin/supabase/schema.sql). Last-write-wins, not live sync: this
+// just lets a newly-activated device offer to pick up an existing shop's
+// data instead of starting empty.
+
+async function callSnapshotRpc(fn, body) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return { ok: false, error: 'not_configured' };
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return { ok: false, error: `rpc_failed_${res.status}` };
+    return await res.json();
+  } catch {
+    return { ok: false, error: 'offline' };
+  }
+}
+
+function countRecords(data) {
+  return Object.values(data || {}).reduce((sum, rows) => {
+    if (!Array.isArray(rows)) return sum;
+    return sum + rows.filter((r) => !r?.deleted_at).length;
+  }, 0);
+}
+
+function isLocalDataEmpty() {
+  try {
+    const exported = db.exportAll();
+    return countRecords(exported.data) === 0;
+  } catch {
+    return false;
+  }
+}
+
+async function checkSnapshotMeta(shopId, deviceId) {
+  const result = await callSnapshotRpc('get_shop_snapshot_meta', { p_shop_id: shopId, p_device_id: deviceId });
+  if (!result?.ok) return null;
+  return { exists: !!result.exists, updatedAt: result.updated_at, recordCount: result.record_count };
+}
+
+/** Metadata-only check for the current shop's cloud snapshot — used to show
+ * "last synced" info in Settings without downloading the full data. */
+async function checkSnapshotForCurrentShop() {
+  const status = getStatus();
+  if (!status.activated || !status.shopId) return null;
+  return checkSnapshotMeta(status.shopId, getDeviceId());
+}
+
+/** Downloads the current shop's cloud snapshot into this device's local SQLite database. */
+async function pullSnapshot() {
+  const status = getStatus();
+  if (!status.activated || !status.shopId) return { ok: false, error: 'Not activated.' };
+  const deviceId = getDeviceId();
+  const result = await callSnapshotRpc('get_shop_snapshot', { p_shop_id: status.shopId, p_device_id: deviceId });
+  if (!result?.ok) return { ok: false, error: 'Could not reach the server — check your connection and try again.' };
+  if (!result.exists || !result.data) return { ok: false, error: 'No cloud data was found for this shop.' };
+  db.importAll({ data: result.data });
+  return { ok: true };
+}
+
+/** Uploads this device's local SQLite database as the shop's latest cloud snapshot. */
+async function pushSnapshot() {
+  const status = getStatus();
+  if (!status.activated || !status.shopId) return { ok: false, error: 'Not activated.' };
+  const deviceId = getDeviceId();
+  const exported = db.exportAll();
+  const result = await callSnapshotRpc('push_shop_snapshot', {
+    p_shop_id: status.shopId,
+    p_device_id: deviceId,
+    p_data: exported.data,
+    p_record_count: countRecords(exported.data),
+  });
+  if (!result?.ok) return { ok: false, error: result?.error === 'offline' ? 'offline' : 'Could not sync to the cloud right now.' };
+  return { ok: true };
 }
 
 function b64urlToBuf(s) {
@@ -174,13 +260,38 @@ async function activate(code) {
   }
 
   licenseStore.set('code', code.trim());
-  return { ok: true, ...getStatus() };
+
+  // Switch to (or create) THIS shop's own database file before touching
+  // any data below — critical so a device that previously belonged to a
+  // different shop (or had none activated yet) never reads or writes that
+  // other shop's data under this shop's license. See electron/db.cjs.
+  db.init(result.payload.shopId);
+
+  // Only offer to "continue with existing data" when this device is
+  // genuinely fresh — never overwrite a device that already has its own
+  // real data just because it happens to (re-)activate the same code.
+  let snapshotAvailable;
+  try {
+    if (isLocalDataEmpty()) {
+      const meta = await checkSnapshotMeta(result.payload.shopId, deviceId);
+      if (meta?.exists) {
+        snapshotAvailable = { updatedAt: meta.updatedAt, recordCount: meta.recordCount };
+      }
+    }
+  } catch {
+    // Best-effort only — a failed check just means no prompt is shown.
+  }
+
+  return { ok: true, ...getStatus(), snapshotAvailable };
 }
 
 /** Support/testing use only — removes the stored code. */
 function clear() {
   licenseStore.delete('code');
+  // Switch back to the neutral placeholder database so nothing from the
+  // previous shop stays reachable while this device is unactivated.
+  try { db.init(null); } catch (_) {}
   return { ok: true };
 }
 
-module.exports = { getStatus, activate, clear, verifyRawCode: parseAndVerifyRaw };
+module.exports = { getStatus, activate, clear, verifyRawCode: parseAndVerifyRaw, pullSnapshot, pushSnapshot, checkSnapshot: checkSnapshotForCurrentShop };

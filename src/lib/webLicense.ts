@@ -19,6 +19,7 @@
 
 import { getDeviceId, getDeviceLabel } from "@/lib/deviceId";
 import { registerDevice } from "@/lib/deviceRegistry";
+import { checkShopSnapshot, isLocalDataEmpty, pullShopSnapshot, pushShopSnapshot } from "@/lib/cloudSnapshot";
 
 const PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEATqyRJOdCvdqI2tnKGC8E29tWjOF82sf8DmkYaIsv5aI=
@@ -165,5 +166,57 @@ export async function activateWebLicense(code: string) {
   }
 
   localStorage.setItem(STORAGE_KEY, code.trim());
-  return { ok: true, ...(await getWebLicenseStatus()) };
+
+  // Only offer to "continue with existing data" when this device is
+  // genuinely fresh — never overwrite a device that already has its own
+  // real data just because it happens to (re-)activate the same code.
+  let snapshotAvailable: { updatedAt?: string; recordCount?: number } | undefined;
+  try {
+    if (await isLocalDataEmpty()) {
+      const meta = await checkShopSnapshot(payload.shopId);
+      if (meta?.exists) {
+        snapshotAvailable = { updatedAt: meta.updatedAt, recordCount: meta.recordCount };
+      }
+    }
+  } catch {
+    // Best-effort only — a failed check just means no prompt is shown.
+  }
+
+  return { ok: true, ...(await getWebLicenseStatus()), snapshotAvailable };
+}
+
+/** Deactivates this device — clears the stored code so LicenseGate shows the
+ * activation screen again. Does not delete local data or touch the cloud
+ * snapshot; a device slot on Supabase stays used until an admin resets it. */
+export function clearWebLicense(): { ok: true } {
+  localStorage.removeItem(STORAGE_KEY);
+  return { ok: true };
+}
+
+/** Metadata-only check for the current shop's cloud snapshot — used to show
+ * "last synced" info in Settings without downloading the full data. */
+export async function checkWebSnapshotMeta(): Promise<{ exists: boolean; updatedAt?: string; recordCount?: number } | null> {
+  const code = localStorage.getItem(STORAGE_KEY);
+  if (!code) return null;
+  const result = await parseAndVerify(code);
+  if (!result.valid || !result.payload) return null;
+  return checkShopSnapshot(result.payload.shopId);
+}
+
+/** Pulls the current shop's cloud snapshot into this device's local database. */
+export async function pullWebSnapshot(): Promise<{ ok: boolean; error?: string }> {
+  const code = localStorage.getItem(STORAGE_KEY);
+  if (!code) return { ok: false, error: "Not activated." };
+  const result = await parseAndVerify(code);
+  if (!result.valid || !result.payload) return { ok: false, error: "Not activated." };
+  return pullShopSnapshot(result.payload.shopId);
+}
+
+/** Pushes this device's local database as the current shop's latest cloud snapshot. */
+export async function pushWebSnapshot(): Promise<{ ok: boolean; error?: string }> {
+  const code = localStorage.getItem(STORAGE_KEY);
+  if (!code) return { ok: false, error: "Not activated." };
+  const result = await parseAndVerify(code);
+  if (!result.valid || !result.payload) return { ok: false, error: "Not activated." };
+  return pushShopSnapshot(result.payload.shopId);
 }

@@ -31,6 +31,9 @@ declare global {
       }>;
       activate: (code: string) => Promise<{ ok: boolean; error?: string } & Record<string, unknown>>;
       clear: () => Promise<{ ok: true }>;
+      pullSnapshot?: () => Promise<{ ok: boolean; error?: string }>;
+      pushSnapshot?: () => Promise<{ ok: boolean; error?: string }>;
+      checkSnapshot?: () => Promise<{ exists: boolean; updatedAt?: string; recordCount?: number } | null>;
     };
   }
 }

@@ -1,7 +1,7 @@
 import { ReactNode, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
-import { LayoutDashboard, Users, ArrowLeftRight, Menu, X, Package, Truck, ShoppingCart, Receipt, Bell, BarChart3, FileText, Settings as SettingsIcon, PackagePlus, Moon, Wifi, WifiOff, RefreshCw, Server, Globe, Mail, MessageCircle, Clock } from 'lucide-react';
+import { LayoutDashboard, Users, ArrowLeftRight, Menu, X, Package, Truck, ShoppingCart, Receipt, Bell, BarChart3, FileText, Settings as SettingsIcon, PackagePlus, Moon, Wifi, WifiOff, RefreshCw, Server, Globe, Mail, MessageCircle, Clock, LogOut, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useShopSettings } from '@/hooks/useShopSettings';
 import { useStockAlerts } from '@/hooks/useStockAlerts';
@@ -10,6 +10,17 @@ import { KeyboardShortcutsHelp } from '@/components/KeyboardShortcutsHelp';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { MenuBar } from '@/components/MenuBar';
+import { logout } from '@/lib/license';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
@@ -19,7 +30,20 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const { data: alerts } = useStockAlerts();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [signOutOpen, setSignOutOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const sync = useSyncStatus();
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await logout();
+    } finally {
+      // Full reload so every cached query, hook, and in-memory state resets
+      // cleanly and LicenseGate re-checks status from scratch.
+      window.location.reload();
+    }
+  };
 
   const navItems = [
     { to: '/', icon: LayoutDashboard, label: t('nav.dashboard') },
@@ -93,6 +117,15 @@ export function AppLayout({ children }: { children: ReactNode }) {
                 </Link>
               ))}
             </div>
+            <div className="mt-4 pt-4 border-t border-border">
+              <button
+                onClick={() => { setMobileOpen(false); setSignOutOpen(true); }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors"
+              >
+                <LogOut size={18} />
+                <span>{t('nav.signOut')}</span>
+              </button>
+            </div>
           </nav>
         </div>
       )}
@@ -132,6 +165,13 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <div className="px-1">
               <ThemeToggle />
             </div>
+            <button
+              onClick={() => setSignOutOpen(true)}
+              className="w-full flex items-center gap-3 px-2 py-2 rounded-lg text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors"
+            >
+              <LogOut size={16} />
+              <span>{t('nav.signOut')}</span>
+            </button>
 
           </div>
         </aside>
@@ -196,6 +236,22 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </div>
       </div>
       <KeyboardShortcutsHelp open={showHelp} onOpenChange={setShowHelp} />
+
+      <AlertDialog open={signOutOpen} onOpenChange={(open) => !signingOut && setSignOutOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('nav.signOutConfirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('nav.signOutConfirmBody')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={signingOut}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSignOut} disabled={signingOut} className="gap-2">
+              {signingOut && <Loader2 className="animate-spin" size={16} />}
+              {signingOut ? t('nav.signingOut') : t('nav.signOut')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

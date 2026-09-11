@@ -56,7 +56,11 @@ app.whenReady().then(() => {
   // Remove the default Electron menu (contains dev tools, reload, etc.)
   Menu.setApplicationMenu(null);
 
-  db.init();
+  // Opens (or creates) whichever shop's database this device is currently
+  // activated for — a fresh install with no license yet gets a neutral
+  // placeholder file until activation. See electron/db.cjs for why this is
+  // now per-shop instead of one shared file.
+  db.init(license.getStatus().shopId);
 
   // ── Auto-backup: start scheduler immediately on app launch ───────────────
   // This runs even before any UI is shown, so backup works as long as the
@@ -69,9 +73,6 @@ app.whenReady().then(() => {
   } catch (err) {
     console.error('[Main] Failed to start backup scheduler:', err.message);
   }
-
-  // ── Initialise sync queue (always — needed on all modes) ─────────────────
-  syncQueue.init(db.getDb());
 
   const mode = netConfig.getMode();
   console.log(`[Main] Network mode: ${mode}`);
@@ -372,6 +373,9 @@ ipcMain.handle('file:show-in-folder', async (_e, filePath) => {
 ipcMain.handle('license:get-status', () => license.getStatus());
 ipcMain.handle('license:activate', (_e, code) => license.activate(code));
 ipcMain.handle('license:clear', () => license.clear());
+ipcMain.handle('license:pull-snapshot', () => license.pullSnapshot());
+ipcMain.handle('license:push-snapshot', () => license.pushSnapshot());
+ipcMain.handle('license:check-snapshot', () => license.checkSnapshot());
 
 autoUpdater.on('update-available',  () => console.log('Update available...'));
 autoUpdater.on('update-downloaded', () => { autoUpdater.quitAndInstall(); });

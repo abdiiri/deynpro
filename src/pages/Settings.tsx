@@ -14,6 +14,7 @@ import { Store, Tag, Plus, Trash2, Package, DollarSign, RefreshCw, Target, Lock,
 import { toast } from 'sonner';
 import { useDailySalesTarget, useSaveDailySalesTarget } from '@/hooks/useDailySalesTarget';
 import { getLicenseStatus, activateLicense, daysRemaining, type LicenseStatus } from '@/lib/license';
+import { CloudSyncPanel } from '@/components/CloudSyncPanel';
 
 export default function Settings() {
   const { data: settings, isLoading } = useShopSettings();
@@ -508,6 +509,7 @@ export default function Settings() {
       )}
 
       <LicenseSettingsCard />
+      <CloudSyncPanel />
     </div>
   );
 }
@@ -530,7 +532,11 @@ function LicenseSettingsCard() {
       toast.success('License updated');
       setCode('');
       setShowForm(false);
-      refresh();
+      // Force a full reload rather than just refreshing status — this
+      // guarantees the correct shop's local database gets opened if the
+      // code entered belongs to a different shop than before (see
+      // src/lib/webDB.ts for why the database is scoped per shop).
+      window.location.reload();
     } else {
       toast.error(result.error || 'Could not activate this code');
     }

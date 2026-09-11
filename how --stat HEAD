@@ -1,0 +1,23 @@
+[33mcommit 4080f55c3f6d1cf89f1243d00842e4d7e2d8102c[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: DeynPro <deploy@deynpro.local>
+Date:   Fri Sep 11 02:40:49 2026 +0300
+
+    test
+
+ electron/license.cjs                  |  110 [32m+[m[31m-[m
+ electron/main.cjs                     |    2 [32m+[m
+ electron/preload.cjs                  |    9 [32m+[m[31m-[m
+ package-lock.json                     | 5788 [32m+++++[m[31m----------------------------[m
+ src/components/AppLayout.tsx          |   58 [32m+[m[31m-[m
+ src/components/ContinueDataPrompt.tsx |   72 [32m+[m
+ src/components/LicenseGate.tsx        |   47 [32m+[m[31m-[m
+ src/hooks/useCloudSync.ts             |   54 [32m+[m
+ src/i18n/locales/ar.ts                |    3 [32m+[m
+ src/i18n/locales/en.ts                |    3 [32m+[m
+ src/i18n/locales/so.ts                |    3 [32m+[m
+ src/i18n/locales/sw.ts                |    3 [32m+[m
+ src/lib/cloudSnapshot.ts              |  119 [32m+[m
+ src/lib/license.ts                    |   52 [32m+[m[31m-[m
+ src/lib/webLicense.ts                 |   45 [32m+[m[31m-[m
+ src/vite-env.d.ts                     |    2 [32m+[m
+ 16 files changed, 1371 insertions(+), 4999 deletions(-)

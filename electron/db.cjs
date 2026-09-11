@@ -2,19 +2,121 @@
  * Offline SQLite database for DeynPro (Electron).
  * No login, no users, no cloud — fully local single-user app.
  *
- * Storage: <userData>/deynpro.db
+ * Storage: <userData>/deynpro-<shopId>.db — ONE separate file per shop.
  * Engine:  better-sqlite3
+ *
+ * Each shop's license activates its own database file on this machine, so
+ * two different shops using the same computer (or the same install)
+ * NEVER see each other's data — switching shops (sign out, activate a
+ * different code) switches which file is open, full stop. Before this,
+ * every shop shared one fixed `deynpro.db` file, which meant a second
+ * shop activating on an already-used device would see the first shop's
+ * data. See migrateLegacyDataIfNeeded() below for how existing installs
+ * carry their pre-existing data forward into their own file, once.
  */
 const path = require('path');
 const { app } = require('electron');
 const Database = require('better-sqlite3');
 const { randomUUID } = require('crypto');
 const fs = require('fs');
+const syncQueue = require('./syncQueue.cjs');
 
 let db;
 
-function init() {
-  const dbPath = path.join(app.getPath('userData'), 'deynpro.db');
+function slugifyShopId(shopId) {
+  return String(shopId).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+}
+
+/** `shopId` is null before any license is activated on this device. */
+function resolveDbPath(shopId) {
+  const fileName = shopId ? `deynpro-${slugifyShopId(shopId)}.db` : 'deynpro-unactivated.db';
+  return path.join(app.getPath('userData'), fileName);
+}
+
+function legacyDbPath() {
+  return path.join(app.getPath('userData'), 'deynpro.db');
+}
+
+function migratedFlagPath(shopId) {
+  return path.join(app.getPath('userData'), `.migrated-${slugifyShopId(shopId)}`);
+}
+
+function isDbEmpty(databaseHandle) {
+  for (const t of ALLOWED_TABLES) {
+    try {
+      const row = databaseHandle.prepare(`SELECT COUNT(*) as c FROM ${t} WHERE deleted_at IS NULL`).get();
+      if (row && row.c > 0) return false;
+    } catch (_) {
+      // Table doesn't exist in this file — treat as empty for that table.
+    }
+  }
+  return true;
+}
+
+/**
+ * One-time carry-over: if this shop's own database file is brand new
+ * (empty) and the old shared `deynpro.db` still exists with real data in
+ * it, copy that data into this shop's file — this only ever runs once
+ * per shop (guarded by a flag file), and only the FIRST shop to activate
+ * after this update ships claims that old shared data (which is correct:
+ * on any given device, that legacy file only ever really belonged to
+ * whichever single shop was using this computer before). Once claimed,
+ * the legacy file is renamed out of the way so no OTHER shop can ever
+ * pick it up too.
+ */
+function migrateLegacyDataIfNeeded(shopId) {
+  if (!shopId) return;
+  const flagPath = migratedFlagPath(shopId);
+  if (fs.existsSync(flagPath)) return;
+
+  try {
+    if (isDbEmpty(db) && fs.existsSync(legacyDbPath())) {
+      const legacyDb = new Database(legacyDbPath(), { readonly: true, fileMustExist: true });
+      const legacyHasData = !isDbEmpty(legacyDb);
+      if (legacyHasData) {
+        db.transaction(() => {
+          for (const t of ALLOWED_TABLES) {
+            let rows;
+            try {
+              rows = legacyDb.prepare(`SELECT * FROM ${t}`).all();
+            } catch (_) {
+              continue;
+            }
+            for (const row of rows) {
+              const cols = Object.keys(row);
+              if (!cols.length) continue;
+              db.prepare(`INSERT OR REPLACE INTO ${t} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
+                .run(...cols.map((c) => row[c]));
+            }
+          }
+        })();
+      }
+      legacyDb.close();
+      if (legacyHasData) {
+        // Claimed — move it aside so it can never be migrated into a
+        // different shop's database later.
+        try {
+          fs.renameSync(legacyDbPath(), `${legacyDbPath()}.migrated`);
+          for (const ext of ['-wal', '-shm']) {
+            try { fs.renameSync(legacyDbPath() + ext, `${legacyDbPath()}.migrated${ext}`); } catch (_) {}
+          }
+        } catch (_) {}
+      }
+    }
+  } catch (err) {
+    console.error('Legacy data migration skipped:', err.message);
+  } finally {
+    try { fs.writeFileSync(flagPath, new Date().toISOString()); } catch (_) {}
+  }
+}
+
+/** (Re-)opens the database for the given shop, closing any previously
+ * open handle first. Pass null/undefined before any license is activated. */
+function init(shopId) {
+  if (db) {
+    try { db.close(); } catch (_) {}
+  }
+  const dbPath = resolveDbPath(shopId);
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
@@ -29,6 +131,8 @@ function init() {
     db.pragma('foreign_keys = ON');
     migrate();
   }
+  migrateLegacyDataIfNeeded(shopId);
+  try { syncQueue.init(db); } catch (_) {}
 }
 
 function migrate() {

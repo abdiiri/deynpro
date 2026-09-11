@@ -3,8 +3,10 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ShieldCheck, ShieldAlert, MessageCircle, Phone, Loader2, ArrowLeft } from 'lucide-react';
-import { getLicenseStatus, activateLicense, whatsappSupportLink, SUPPORT_CONTACT, type LicenseStatus } from '@/lib/license';
+import { getLicenseStatus, activateLicense, pullCloudSnapshot, whatsappSupportLink, SUPPORT_CONTACT, type LicenseStatus, type SnapshotAvailable } from '@/lib/license';
 import { LandingPage } from '@/components/LandingPage';
+import { ContinueDataPrompt } from '@/components/ContinueDataPrompt';
+import { useCloudSync } from '@/hooks/useCloudSync';
 import { toast } from 'sonner';
 
 // Re-checks the license against the local clock every 5 minutes while the
@@ -29,6 +31,13 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [refresh]);
 
+  const isValid = !!status?.activated && !status?.expired;
+
+  // Keep the cloud snapshot fresh in the background whenever the app is in
+  // active use — called unconditionally (hooks can't be behind the early
+  // returns below), it's a no-op internally until isValid is true.
+  useCloudSync(isValid);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -36,8 +45,6 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-
-  const isValid = status?.activated && !status.expired;
 
   if (!isValid) {
     // Already a customer whose subscription lapsed — skip the pitch, go
@@ -66,6 +73,7 @@ function ActivationScreen({ status, onActivated, onBack }: { status: LicenseStat
   const [code, setCode] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [activateError, setActivateError] = useState<{ message: string; deviceLimitReached?: boolean; deviceLimit?: number } | null>(null);
+  const [pendingSnapshot, setPendingSnapshot] = useState<(SnapshotAvailable & { shopName?: string }) | null>(null);
 
   const handleActivate = async () => {
     if (!code.trim()) return;
@@ -74,9 +82,15 @@ function ActivationScreen({ status, onActivated, onBack }: { status: LicenseStat
     setSubmitting(false);
     if (result.ok) {
       setActivateError(null);
-      toast.success('License activated');
       setCode('');
-      onActivated();
+      if (result.snapshotAvailable) {
+        // Fresh device, and the shop already has data saved from another
+        // device — let the person choose before entering the app.
+        setPendingSnapshot({ ...result.snapshotAvailable, shopName: (result as Record<string, unknown>).shopName as string | undefined });
+      } else {
+        toast.success('License activated');
+        onActivated();
+      }
     } else {
       setActivateError({
         message: result.error || 'Could not activate this code',
@@ -85,6 +99,20 @@ function ActivationScreen({ status, onActivated, onBack }: { status: LicenseStat
       });
       toast.error(result.error || 'Could not activate this code');
     }
+  };
+
+  const handleContinueData = async () => {
+    const result = await pullCloudSnapshot();
+    if (!result.ok) throw new Error(result.error || 'Could not download the existing data.');
+    toast.success('Your existing data is ready on this device');
+    setPendingSnapshot(null);
+    onActivated();
+  };
+
+  const handleStartFresh = () => {
+    setPendingSnapshot(null);
+    toast.success('License activated');
+    onActivated();
   };
 
   const wasExpired = status?.activated && status.expired;
@@ -170,6 +198,15 @@ function ActivationScreen({ status, onActivated, onBack }: { status: LicenseStat
           </div>
         </CardContent>
       </Card>
+
+      <ContinueDataPrompt
+        open={!!pendingSnapshot}
+        shopName={pendingSnapshot?.shopName}
+        updatedAt={pendingSnapshot?.updatedAt}
+        recordCount={pendingSnapshot?.recordCount}
+        onContinue={handleContinueData}
+        onStartFresh={handleStartFresh}
+      />
     </div>
   );
 }

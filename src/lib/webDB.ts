@@ -7,10 +7,20 @@
  * usable when opened in a normal browser / installed as a PWA — no
  * desktop app required.
  *
+ * One IndexedDB database PER SHOP (named "deynpro-<shopId>"), not one
+ * shared database for the whole browser. This matters: without it, a
+ * second shop activating their code in the same browser would land
+ * straight in the first shop's data. See migrateLegacyDataIfNeeded()
+ * below for how a browser that already has data in the old shared
+ * "deynpro" database carries it forward into its own shop-specific one,
+ * exactly once.
+ *
  * Exposed with the identical shape as window.electronDB (select / insert /
  * update / remove / exportAll / importAll) so every existing hook works
  * unchanged — see `getDB()` in `src/lib/db.ts` for how the two are chosen.
  */
+
+import { getScopedDbName } from "@/lib/shopScope";
 
 export type TableName =
   | "customers"
@@ -28,7 +38,7 @@ export type TableName =
   | "eod_reports"
   | "product_categories";
 
-const DB_NAME = "deynpro";
+const LEGACY_DB_NAME = "deynpro";
 const DB_VERSION = 1;
 
 const ALL_TABLES: TableName[] = [
@@ -54,12 +64,9 @@ function now(): string {
   return new Date().toISOString();
 }
 
-let dbPromise: Promise<IDBDatabase> | null = null;
-
-function openDB(): Promise<IDBDatabase> {
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+function openNamedDB(name: string): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(name, DB_VERSION);
     req.onupgradeneeded = () => {
       const idb = req.result;
       for (const table of ALL_TABLES) {
@@ -68,13 +75,78 @@ function openDB(): Promise<IDBDatabase> {
         }
       }
     };
-    req.onsuccess = async () => {
-      const idb = req.result;
-      await seedDefaults(idb);
-      resolve(idb);
-    };
+    req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+async function hasAnyRows(idb: IDBDatabase): Promise<boolean> {
+  for (const table of ALL_TABLES) {
+    const rows = await allRows(idb, table);
+    if (rows.some((r: any) => !r?.deleted_at)) return true;
+  }
+  return false;
+}
+
+/**
+ * One-time carry-over: if this shop's own database is brand new (empty)
+ * and the old shared "deynpro" database still has real data in it, copy
+ * that data in — this only ever runs once per shop (guarded by a
+ * localStorage flag), so only the FIRST shop to open this browser after
+ * the update ships claims that old shared data (correct: in practice
+ * that old database only ever really belonged to whichever single shop
+ * used this browser before). Once claimed, the legacy database is
+ * deleted so no OTHER shop can ever pick up the same data too.
+ */
+async function migrateLegacyDataIfNeeded(scopedName: string, idb: IDBDatabase): Promise<void> {
+  if (scopedName === LEGACY_DB_NAME) return;
+  const flagKey = `deynpro_migrated::${scopedName}`;
+  if (localStorage.getItem(flagKey)) return;
+
+  try {
+    const scopedIsEmpty = !(await hasAnyRows(idb));
+    if (scopedIsEmpty) {
+      const legacyIdb = await openNamedDB(LEGACY_DB_NAME);
+      const legacyHasData = await hasAnyRows(legacyIdb);
+      if (legacyHasData) {
+        for (const table of ALL_TABLES) {
+          const rows = await allRows(legacyIdb, table);
+          for (const row of rows) {
+            if (row && row.id) await putRow(idb, table, row);
+          }
+        }
+      }
+      legacyIdb.close();
+      if (legacyHasData) {
+        // Claimed — remove it so it can never be migrated into a
+        // different shop's database later.
+        await new Promise<void>((resolve) => {
+          const del = indexedDB.deleteDatabase(LEGACY_DB_NAME);
+          del.onsuccess = () => resolve();
+          del.onerror = () => resolve();
+          del.onblocked = () => resolve();
+        });
+      }
+    }
+  } catch {
+    // Best-effort — if migration fails for any reason, proceed with an
+    // empty shop database rather than blocking the app from loading.
+  } finally {
+    localStorage.setItem(flagKey, "1");
+  }
+}
+
+let dbPromise: Promise<IDBDatabase> | null = null;
+
+function openDB(): Promise<IDBDatabase> {
+  if (dbPromise) return dbPromise;
+  dbPromise = (async () => {
+    const scopedName = getScopedDbName(LEGACY_DB_NAME);
+    const idb = await openNamedDB(scopedName);
+    await migrateLegacyDataIfNeeded(scopedName, idb);
+    await seedDefaults(idb);
+    return idb;
+  })();
   return dbPromise;
 }
 

@@ -88,7 +88,11 @@ contextBridge.exposeInMainWorld('electronThermal', {
 
 // License API — fully offline verification, no network calls
 contextBridge.exposeInMainWorld('electronLicense', {
-  getStatus: ()     => ipcRenderer.invoke('license:get-status'),
-  activate:  (code) => ipcRenderer.invoke('license:activate', code),
-  clear:     ()     => ipcRenderer.invoke('license:clear'),
+  getStatus:     ()     => ipcRenderer.invoke('license:get-status'),
+  activate:      (code) => ipcRenderer.invoke('license:activate', code),
+  clear:         ()     => ipcRenderer.invoke('license:clear'),
+  // Cross-device data continuity — see electron/license.cjs
+  pullSnapshot:  ()     => ipcRenderer.invoke('license:pull-snapshot'),
+  pushSnapshot:  ()     => ipcRenderer.invoke('license:push-snapshot'),
+  checkSnapshot: ()     => ipcRenderer.invoke('license:check-snapshot'),
 });
