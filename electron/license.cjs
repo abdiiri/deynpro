@@ -28,6 +28,7 @@ const db = require('./db.cjs');
 const SUPABASE_URL = 'https://xvsafbyctlclqqybqaio.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_ClIpkWOzhUYlXUxbKcQ4zg_rVIchwBI';
 const DEFAULT_DEVICE_LIMIT = 2;
+const TRIAL_DAYS = 7;
 
 // Safe to keep in the shipped app — verifying a signature does not let
 // anyone forge one. Replace this with the contents of license-admin's
@@ -85,6 +86,27 @@ async function registerDevice(shopId, deviceId, deviceLabel, limit) {
   }
 }
 
+async function checkShopStatus(shopId) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return { revoked: false };
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/check_shop_status`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({ p_shop_id: shopId }),
+    });
+    if (!res.ok) return { revoked: false };
+    const data = await res.json();
+    return { revoked: !!data?.revoked };
+  } catch {
+    // Offline — fail OPEN, same reasoning as registerDevice above.
+    return { revoked: false };
+  }
+}
+
 // ── Cross-device data continuity ("continue on this device?") ─────────────
 // Mirrors src/lib/cloudSnapshot.ts on the web build — same RPCs, same rule
 // (only a device_id already registered for that shop_id may push/pull, see
@@ -127,6 +149,62 @@ function isLocalDataEmpty() {
   }
 }
 
+function rowTimestamp(row) {
+  const t = row?.updated_at || row?.created_at;
+  const ms = t ? new Date(t).getTime() : 0;
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+/**
+ * Merges two exportAll()-shaped data objects, table by table, record by
+ * record — mirrors src/lib/cloudSnapshot.ts's mergeSnapshotData() on the
+ * web build exactly. A record present on only one side is always kept; a
+ * record present on both sides keeps whichever has the newer updated_at
+ * (ties go to local). This is what makes syncing safe with any number of
+ * devices active at once — nobody's push can silently erase what another
+ * device added since its own last sync.
+ */
+function mergeSnapshotData(localData, remoteData) {
+  const tables = new Set([...Object.keys(localData || {}), ...Object.keys(remoteData || {})]);
+  const merged = {};
+
+  for (const table of tables) {
+    const localRows = Array.isArray(localData?.[table]) ? localData[table] : [];
+    const remoteRows = Array.isArray(remoteData?.[table]) ? remoteData[table] : [];
+
+    const byId = new Map();
+    for (const row of remoteRows) {
+      if (row && row.id != null) byId.set(row.id, row);
+    }
+    for (const row of localRows) {
+      if (!row || row.id == null) continue;
+      const existing = byId.get(row.id);
+      if (!existing || rowTimestamp(row) >= rowTimestamp(existing)) {
+        byId.set(row.id, row);
+      }
+    }
+    merged[table] = Array.from(byId.values());
+  }
+
+  return merged;
+}
+
+// "Start fresh" opt-out — see the matching comment in
+// src/lib/cloudSnapshot.ts. Stored in licenseStore (electron-store) so it
+// survives restarts, same as the license code and device id.
+function optOutOfPull(shopId) {
+  const optedOut = licenseStore.get('noPullShopIds') || [];
+  if (!optedOut.includes(shopId)) {
+    optedOut.push(shopId);
+    licenseStore.set('noPullShopIds', optedOut);
+  }
+}
+
+function hasOptedOutOfPull(shopId) {
+  const optedOut = licenseStore.get('noPullShopIds') || [];
+  return optedOut.includes(shopId);
+}
+
 async function checkSnapshotMeta(shopId, deviceId) {
   const result = await callSnapshotRpc('get_shop_snapshot_meta', { p_shop_id: shopId, p_device_id: deviceId });
   if (!result?.ok) return null;
@@ -136,37 +214,74 @@ async function checkSnapshotMeta(shopId, deviceId) {
 /** Metadata-only check for the current shop's cloud snapshot — used to show
  * "last synced" info in Settings without downloading the full data. */
 async function checkSnapshotForCurrentShop() {
-  const status = getStatus();
+  const status = await getStatus();
   if (!status.activated || !status.shopId) return null;
   return checkSnapshotMeta(status.shopId, getDeviceId());
 }
 
-/** Downloads the current shop's cloud snapshot into this device's local SQLite database. */
-async function pullSnapshot() {
-  const status = getStatus();
-  if (!status.activated || !status.shopId) return { ok: false, error: 'Not activated.' };
+/**
+ * The one real operation: fetch the cloud snapshot, merge with local data,
+ * push the merged result up, and (unless this device opted out via
+ * startFreshSnapshot) bring this device's local database up to the
+ * merged state too.
+ */
+async function reconcile(shopId, { skipLocalImport = false } = {}) {
   const deviceId = getDeviceId();
-  const result = await callSnapshotRpc('get_shop_snapshot', { p_shop_id: status.shopId, p_device_id: deviceId });
-  if (!result?.ok) return { ok: false, error: 'Could not reach the server — check your connection and try again.' };
-  if (!result.exists || !result.data) return { ok: false, error: 'No cloud data was found for this shop.' };
-  db.importAll({ data: result.data });
-  return { ok: true };
+
+  const remoteResult = await callSnapshotRpc('get_shop_snapshot', { p_shop_id: shopId, p_device_id: deviceId });
+  if (!remoteResult?.ok) {
+    return { ok: false, error: remoteResult?.error === 'offline' ? 'offline' : (remoteResult?.error || 'Could not reach the server — check your connection and try again.') };
+  }
+  const remoteData = remoteResult.exists ? remoteResult.data : {};
+
+  const exported = db.exportAll();
+  const merged = mergeSnapshotData(exported.data, remoteData);
+  const recordCount = countRecords(merged);
+
+  const pushResult = await callSnapshotRpc('push_shop_snapshot', {
+    p_shop_id: shopId,
+    p_device_id: deviceId,
+    p_data: merged,
+    p_record_count: recordCount,
+  });
+  if (!pushResult?.ok) {
+    return { ok: false, error: pushResult?.error === 'offline' ? 'offline' : 'Could not sync to the cloud right now.' };
+  }
+
+  if (!skipLocalImport) {
+    db.importAll({ data: merged });
+  }
+
+  return { ok: true, recordCount };
 }
 
-/** Uploads this device's local SQLite database as the shop's latest cloud snapshot. */
-async function pushSnapshot() {
-  const status = getStatus();
+/** Downloads the current shop's cloud snapshot into this device's local SQLite database
+ * — called right after activation when the user picks "continue with existing data",
+ * so this always imports (the device is fresh at that point). */
+async function pullSnapshot() {
+  const status = await getStatus();
   if (!status.activated || !status.shopId) return { ok: false, error: 'Not activated.' };
-  const deviceId = getDeviceId();
-  const exported = db.exportAll();
-  const result = await callSnapshotRpc('push_shop_snapshot', {
-    p_shop_id: status.shopId,
-    p_device_id: deviceId,
-    p_data: exported.data,
-    p_record_count: countRecords(exported.data),
-  });
-  if (!result?.ok) return { ok: false, error: result?.error === 'offline' ? 'offline' : 'Could not sync to the cloud right now.' };
-  return { ok: true };
+  return reconcile(status.shopId, { skipLocalImport: false });
+}
+
+/** A full two-way reconcile — called periodically in the background and by
+ * the manual "Sync now" button, respecting this device's "start fresh"
+ * opt-out if it set one. */
+async function pushSnapshot() {
+  const status = await getStatus();
+  if (!status.activated || !status.shopId) return { ok: false, error: 'Not activated.' };
+  return reconcile(status.shopId, { skipLocalImport: hasOptedOutOfPull(status.shopId) });
+}
+
+/** Called when the user picks "start fresh on this device" instead of
+ * bringing in the shop's existing cloud data. This device keeps
+ * contributing its own new data upward, but stops automatically pulling
+ * other devices' data back into itself. */
+function startFreshSnapshot() {
+  const status_ = licenseStore.get('code');
+  if (!status_) return;
+  const result = parseAndVerify(status_);
+  if (result.valid && result.payload?.shopId) optOutOfPull(result.payload.shopId);
 }
 
 function b64urlToBuf(s) {
@@ -210,16 +325,59 @@ function parseAndVerify(code) {
   return result;
 }
 
-/** Returns the current activation status, purely from the locally stored code + system clock. */
-function getStatus() {
+function getTrialStatus() {
+  let start = licenseStore.get('trialStart');
+  if (!start) {
+    start = Date.now();
+    licenseStore.set('trialStart', start);
+  }
+  const expiresAt = start + TRIAL_DAYS * 24 * 60 * 60 * 1000;
+  const trialDaysLeft = Math.max(0, Math.ceil((expiresAt - Date.now()) / (24 * 60 * 60 * 1000)));
+  return { expiresAt, expired: Date.now() > expiresAt, trialDaysLeft };
+}
+
+/** Sync, no network — just reads whatever shopId (if any) is in the locally
+ * stored code, for use at app startup before the async getStatus() below
+ * has a chance to run (see main.cjs's db.init call). */
+function getStoredShopId() {
   const code = licenseStore.get('code');
-  if (!code) return { activated: false };
+  if (!code) return null;
+  const result = parseAndVerify(code);
+  return result.valid ? result.payload.shopId : null;
+}
+
+/** Returns the current activation status: local signature+expiry check,
+ * falling back to the free trial if no code was ever entered, plus an
+ * online-only remote-deactivation check (fails open when offline). */
+async function getStatus() {
+  const code = licenseStore.get('code');
+
+  if (!code) {
+    const trial = getTrialStatus();
+    if (!trial.expired) {
+      return { activated: true, trial: true, trialDaysLeft: trial.trialDaysLeft, expiresAt: trial.expiresAt };
+    }
+    return { activated: false, trialExpired: true };
+  }
 
   const result = parseAndVerify(code);
   if (!result.valid) return { activated: false, error: result.error };
 
   const { payload } = result;
   const expired = Date.now() > payload.expiresAt;
+
+  if (!expired) {
+    const { revoked } = await checkShopStatus(payload.shopId);
+    if (revoked) {
+      return {
+        activated: false,
+        revoked: true,
+        shopId: payload.shopId,
+        shopName: payload.shopName,
+        error: 'Access to this code has been turned off. Contact support if you think this is a mistake.',
+      };
+    }
+  }
 
   return {
     activated: true,
@@ -239,6 +397,13 @@ async function activate(code) {
 
   if (Date.now() > result.payload.expiresAt) {
     return { ok: false, error: 'This code has already expired — ask for a new one.' };
+  }
+
+  // A shop that's been remotely deactivated shouldn't be able to activate
+  // on a brand new device either, not just get caught on a recheck later.
+  const { revoked } = await checkShopStatus(result.payload.shopId);
+  if (revoked) {
+    return { ok: false, error: 'Access to this code has been turned off. Contact support if you think this is a mistake.' };
   }
 
   const deviceId = getDeviceId();
@@ -282,7 +447,7 @@ async function activate(code) {
     // Best-effort only — a failed check just means no prompt is shown.
   }
 
-  return { ok: true, ...getStatus(), snapshotAvailable };
+  return { ok: true, ...(await getStatus()), snapshotAvailable };
 }
 
 /** Support/testing use only — removes the stored code. */
@@ -294,4 +459,4 @@ function clear() {
   return { ok: true };
 }
 
-module.exports = { getStatus, activate, clear, verifyRawCode: parseAndVerifyRaw, pullSnapshot, pushSnapshot, checkSnapshot: checkSnapshotForCurrentShop };
+module.exports = { getStatus, getStoredShopId, activate, clear, verifyRawCode: parseAndVerifyRaw, pullSnapshot, pushSnapshot, checkSnapshot: checkSnapshotForCurrentShop, startFreshSnapshot };

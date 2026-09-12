@@ -1,7 +1,7 @@
 // Thin wrapper around window.electronLicense (desktop) or webLicense.ts
 // (browser/PWA, any device). Verification always happens locally on the
 // device — no network requests are ever made, in either build.
-import { getWebLicenseStatus, activateWebLicense, clearWebLicense, pullWebSnapshot, pushWebSnapshot, checkWebSnapshotMeta } from '@/lib/webLicense';
+import { getWebLicenseStatus, activateWebLicense, clearWebLicense, pullWebSnapshot, pushWebSnapshot, checkWebSnapshotMeta, startFreshWebSnapshot } from '@/lib/webLicense';
 
 // EDIT THIS before you package the app for shops — this is what shows on
 // the lock screen so they know how to reach you to renew.
@@ -23,6 +23,10 @@ export interface LicenseStatus {
   deviceLimitReached?: boolean;
   deviceCount?: number;
   deviceLimit?: number;
+  trial?: boolean;
+  trialDaysLeft?: number;
+  trialExpired?: boolean;
+  revoked?: boolean;
 }
 
 /** Present on a successful activation when this is a fresh device AND the
@@ -72,6 +76,19 @@ export async function pushCloudSnapshot(): Promise<{ ok: boolean; error?: string
     return { ok: false, error: 'not_supported' };
   }
   return window.electronLicense.pushSnapshot();
+}
+
+/** Call when the person picks "start fresh on this device" instead of
+ * bringing in the shop's existing cloud data (see ContinueDataPrompt).
+ * This device keeps contributing its own new data to the shared cloud
+ * copy, but stops pulling other devices' data back into itself — so a
+ * later background sync doesn't quietly undo this choice. */
+export function startFreshCloudData(): void {
+  if (!window.electronLicense) {
+    startFreshWebSnapshot();
+    return;
+  }
+  window.electronLicense.startFreshSnapshot?.();
 }
 
 export interface CloudSnapshotInfo {

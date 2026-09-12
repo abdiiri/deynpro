@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ShieldCheck, ShieldAlert, MessageCircle, Phone, Loader2, ArrowLeft } from 'lucide-react';
-import { getLicenseStatus, activateLicense, pullCloudSnapshot, whatsappSupportLink, SUPPORT_CONTACT, type LicenseStatus, type SnapshotAvailable } from '@/lib/license';
+import { getLicenseStatus, activateLicense, pullCloudSnapshot, startFreshCloudData, whatsappSupportLink, SUPPORT_CONTACT, type LicenseStatus, type SnapshotAvailable } from '@/lib/license';
 import { LandingPage } from '@/components/LandingPage';
 import { ContinueDataPrompt } from '@/components/ContinueDataPrompt';
 import { useCloudSync } from '@/hooks/useCloudSync';
@@ -47,16 +47,38 @@ export function LicenseGate({ children }: { children: React.ReactNode }) {
   }
 
   if (!isValid) {
-    // Already a customer whose subscription lapsed — skip the pitch, go
-    // straight to renewal. The marketing/install page is for new visitors.
-    const isReturningExpired = status?.activated && status.expired;
-    if (isReturningExpired) {
+    // Already a customer whose subscription lapsed or was revoked — skip
+    // the pitch, go straight to the code screen. The marketing/install
+    // page is for new visitors who've never had a code.
+    const skipLanding = (status?.activated && status.expired) || status?.revoked;
+    if (skipLanding) {
       return <ActivationScreen status={status} onActivated={refresh} />;
     }
     return <LandingGate status={status} onActivated={refresh} />;
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {status?.trial && <TrialBanner daysLeft={status.trialDaysLeft ?? 0} />}
+      {children}
+    </>
+  );
+}
+
+function TrialBanner({ daysLeft }: { daysLeft: number }) {
+  return (
+    <div className="sticky top-0 z-40 flex items-center justify-center gap-2 bg-amber-500/15 text-amber-700 dark:text-amber-400 text-xs sm:text-sm py-1.5 px-3 text-center border-b border-amber-500/20">
+      <span>
+        Free trial — {daysLeft > 0 ? `${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : 'ends today'}
+      </span>
+      <button
+        onClick={() => window.open(whatsappSupportLink("Hi, I'm on the DeynPro free trial and would like to get a code."), '_blank')}
+        className="underline font-medium"
+      >
+        Get a code
+      </button>
+    </div>
+  );
 }
 
 function LandingGate({ status, onActivated }: { status: LicenseStatus | null; onActivated: () => void }) {
@@ -110,15 +132,19 @@ function ActivationScreen({ status, onActivated, onBack }: { status: LicenseStat
   };
 
   const handleStartFresh = () => {
+    startFreshCloudData();
     setPendingSnapshot(null);
     toast.success('License activated');
     onActivated();
   };
 
   const wasExpired = status?.activated && status.expired;
+  const wasRevoked = status?.revoked;
   const deviceLimitReached = activateError?.deviceLimitReached;
 
-  const waMessage = wasExpired
+  const waMessage = wasRevoked
+    ? `Hi, my DeynPro access for ${status?.shopName || 'my shop'} was turned off — can we sort this out?`
+    : wasExpired
     ? `Hi, my DeynPro subscription for ${status?.shopName || 'my shop'} has expired. I'd like to renew.`
     : deviceLimitReached
       ? `Hi, I've hit the device limit (${activateError?.deviceLimit ?? ''}) on my DeynPro subscription and need to switch to a new device.`
@@ -137,25 +163,35 @@ function ActivationScreen({ status, onActivated, onBack }: { status: LicenseStat
         )}
         <CardHeader className="text-center pb-2">
           <div className="mx-auto mb-2 h-12 w-12 rounded-full bg-destructive/10 flex items-center justify-center">
-            {wasExpired || deviceLimitReached ? <ShieldAlert className="text-destructive" size={26} /> : <ShieldCheck className="text-muted-foreground" size={26} />}
+            {wasExpired || wasRevoked || deviceLimitReached ? <ShieldAlert className="text-destructive" size={26} /> : <ShieldCheck className="text-muted-foreground" size={26} />}
           </div>
           <CardTitle className="text-lg">
-            {wasExpired ? 'Subscription Expired' : deviceLimitReached ? 'Device Limit Reached' : 'Activate DeynPro'}
+            {wasRevoked ? 'Access Turned Off' : wasExpired ? 'Subscription Expired' : deviceLimitReached ? 'Device Limit Reached' : status?.trialExpired ? 'Free Trial Ended' : 'Activate DeynPro'}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {wasRevoked && (
+            <p className="text-sm text-center text-muted-foreground">
+              {status?.error || 'Access to this code has been turned off.'}
+            </p>
+          )}
           {wasExpired && status?.shopName && (
             <p className="text-sm text-center text-muted-foreground">
               <span className="font-medium text-foreground">{status.shopName}</span>'s access expired
               {status.expiresAt && ` on ${new Date(status.expiresAt).toDateString()}`}. Enter a new code below to continue.
             </p>
           )}
-          {!status?.activated && !status?.error?.includes('unavailable') && !activateError && (
+          {status?.trialExpired && (
+            <p className="text-sm text-center text-muted-foreground">
+              Your 7-day free trial has ended. Enter a code below to keep using DeynPro.
+            </p>
+          )}
+          {!status?.activated && !status?.trialExpired && !wasRevoked && !status?.error?.includes('unavailable') && !activateError && (
             <p className="text-sm text-center text-muted-foreground">
               Enter the license code you received to start using the app.
             </p>
           )}
-          {status?.error && !status?.activated && !activateError && (
+          {status?.error && !status?.activated && !activateError && !wasRevoked && (
             <p className="text-xs text-center text-destructive">{status.error}</p>
           )}
           {activateError && (

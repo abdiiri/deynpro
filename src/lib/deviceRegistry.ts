@@ -24,6 +24,36 @@ export function isDeviceRegistryConfigured(): boolean {
   return !!import.meta.env.VITE_SUPABASE_URL && !!import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 }
 
+export async function checkShopStatus(shopId: string): Promise<{ revoked: boolean }> {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+  if (!url || !anonKey) {
+    // Not configured — remote deactivation simply isn't available yet.
+    return { revoked: false };
+  }
+
+  try {
+    const res = await fetch(`${url}/rest/v1/rpc/check_shop_status`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
+      },
+      body: JSON.stringify({ p_shop_id: shopId }),
+    });
+    if (!res.ok) return { revoked: false };
+    const data = await res.json();
+    return { revoked: !!data?.revoked };
+  } catch {
+    // Offline — fail OPEN. A shop should never get locked out just because
+    // they have no signal right now; revocation only ever takes effect
+    // once the device is back online and can actually confirm it.
+    return { revoked: false };
+  }
+}
+
 export async function registerDevice(
   shopId: string,
   deviceId: string,

@@ -60,7 +60,7 @@ app.whenReady().then(() => {
   // activated for — a fresh install with no license yet gets a neutral
   // placeholder file until activation. See electron/db.cjs for why this is
   // now per-shop instead of one shared file.
-  db.init(license.getStatus().shopId);
+  db.init(license.getStoredShopId());
 
   // ── Auto-backup: start scheduler immediately on app launch ───────────────
   // This runs even before any UI is shown, so backup works as long as the
@@ -376,6 +376,7 @@ ipcMain.handle('license:clear', () => license.clear());
 ipcMain.handle('license:pull-snapshot', () => license.pullSnapshot());
 ipcMain.handle('license:push-snapshot', () => license.pushSnapshot());
 ipcMain.handle('license:check-snapshot', () => license.checkSnapshot());
+ipcMain.handle('license:start-fresh-snapshot', () => license.startFreshSnapshot());
 
 autoUpdater.on('update-available',  () => console.log('Update available...'));
 autoUpdater.on('update-downloaded', () => { autoUpdater.quitAndInstall(); });

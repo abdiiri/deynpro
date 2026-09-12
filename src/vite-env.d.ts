@@ -34,6 +34,7 @@ declare global {
       pullSnapshot?: () => Promise<{ ok: boolean; error?: string }>;
       pushSnapshot?: () => Promise<{ ok: boolean; error?: string }>;
       checkSnapshot?: () => Promise<{ exists: boolean; updatedAt?: string; recordCount?: number } | null>;
+      startFreshSnapshot?: () => void;
     };
   }
 }

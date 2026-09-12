@@ -12,14 +12,23 @@
  * Device limit: on first activation on a given device, this also checks
  * in with a small Supabase function (see license-admin/supabase/schema.sql)
  * so the same code can't be activated on unlimited devices — see
- * deviceRegistry.ts. That's the only network call this file ever makes,
- * and only at the moment of activation; day-to-day use afterwards stays
- * fully offline, same as before.
+ * deviceRegistry.ts. That's one of the few network calls this file makes;
+ * day-to-day use otherwise stays fully offline.
+ *
+ * Free trial: if no code has ever been entered on this device, it gets a
+ * 7-day trial automatically, tracked by a timestamp in localStorage — no
+ * code, no network call. Once the trial runs out, the normal activation
+ * screen takes over.
+ *
+ * Remote deactivation: a lightweight periodic online check (deviceRegistry's
+ * checkShopStatus) so a shop can be locked out even on an already-activated
+ * device. Fails open when offline — never locks someone out just for
+ * having no signal.
  */
 
 import { getDeviceId, getDeviceLabel } from "@/lib/deviceId";
-import { registerDevice } from "@/lib/deviceRegistry";
-import { checkShopSnapshot, isLocalDataEmpty, pullShopSnapshot, pushShopSnapshot } from "@/lib/cloudSnapshot";
+import { registerDevice, checkShopStatus } from "@/lib/deviceRegistry";
+import { checkShopSnapshot, isLocalDataEmpty, pullShopSnapshot, pushShopSnapshot, optOutOfPull } from "@/lib/cloudSnapshot";
 
 const PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEATqyRJOdCvdqI2tnKGC8E29tWjOF82sf8DmkYaIsv5aI=
@@ -27,6 +36,8 @@ MCowBQYDK2VwAyEATqyRJOdCvdqI2tnKGC8E29tWjOF82sf8DmkYaIsv5aI=
 `;
 
 const STORAGE_KEY = "deynpro_license_code";
+const TRIAL_START_KEY = "deynpro_trial_start";
+const TRIAL_DAYS = 7;
 const DEFAULT_DEVICE_LIMIT = 2;
 
 function pemToArrayBuffer(pem: string): ArrayBuffer {
@@ -114,15 +125,51 @@ async function parseAndVerify(code: string): Promise<ParsedLicense> {
   return { valid: true, prefix, payload };
 }
 
+/** Starts (if needed) and reads the no-code free trial window for this device. */
+function getTrialStatus() {
+  let start = localStorage.getItem(TRIAL_START_KEY);
+  if (!start) {
+    start = String(Date.now());
+    localStorage.setItem(TRIAL_START_KEY, start);
+  }
+  const startMs = Number(start);
+  const expiresAt = startMs + TRIAL_DAYS * 24 * 60 * 60 * 1000;
+  const trialDaysLeft = Math.max(0, Math.ceil((expiresAt - Date.now()) / (24 * 60 * 60 * 1000)));
+  return { startMs, expiresAt, expired: Date.now() > expiresAt, trialDaysLeft };
+}
+
 export async function getWebLicenseStatus() {
   const code = localStorage.getItem(STORAGE_KEY);
-  if (!code) return { activated: false };
+
+  if (!code) {
+    // No code ever entered on this device — fall back to the free trial.
+    const trial = getTrialStatus();
+    if (!trial.expired) {
+      return { activated: true, trial: true, trialDaysLeft: trial.trialDaysLeft, expiresAt: trial.expiresAt };
+    }
+    return { activated: false, trialExpired: true };
+  }
 
   const result = await parseAndVerify(code);
   if (!result.valid || !result.payload) return { activated: false, error: result.error };
 
   const { payload } = result;
   const expired = Date.now() > payload.expiresAt;
+
+  // Remote deactivation check — online only, fails open when offline (see
+  // checkShopStatus). Only worth checking for a code that's otherwise valid.
+  if (!expired) {
+    const { revoked } = await checkShopStatus(payload.shopId);
+    if (revoked) {
+      return {
+        activated: false,
+        revoked: true,
+        shopId: payload.shopId,
+        shopName: payload.shopName,
+        error: "Access to this code has been turned off. Contact support if you think this is a mistake.",
+      };
+    }
+  }
 
   return {
     activated: true,
@@ -143,6 +190,13 @@ export async function activateWebLicense(code: string) {
 
   if (Date.now() > payload.expiresAt) {
     return { ok: false, error: "This code has already expired — ask for a new one." };
+  }
+
+  // A shop that's been remotely deactivated shouldn't be able to activate
+  // on a brand new device either, not just get caught on a recheck later.
+  const { revoked } = await checkShopStatus(payload.shopId);
+  if (revoked) {
+    return { ok: false, error: "Access to this code has been turned off. Contact support if you think this is a mistake." };
   }
 
   // Device-limit check-in (see deviceRegistry.ts) — the one network call
@@ -219,4 +273,26 @@ export async function pushWebSnapshot(): Promise<{ ok: boolean; error?: string }
   const result = await parseAndVerify(code);
   if (!result.valid || !result.payload) return { ok: false, error: "Not activated." };
   return pushShopSnapshot(result.payload.shopId);
+}
+
+/** Called when the user picks "start fresh on this device" instead of
+ * bringing in the shop's existing cloud data. This device will keep
+ * contributing its own new data upward (so nothing it adds is lost), but
+ * stops automatically pulling other devices' data back into itself —
+ * otherwise the next background sync would quietly undo this choice. */
+export function startFreshWebSnapshot(): void {
+  const code = localStorage.getItem(STORAGE_KEY);
+  if (!code) return;
+  // Signature check is unnecessary here — we just need the shopId to key
+  // the opt-out flag, and an invalid/tampered code won't reach this point
+  // via the normal activation flow anyway.
+  const parts = code.trim().split(".");
+  if (parts.length !== 3) return;
+  try {
+    const jsonText = new TextDecoder("utf-8").decode(b64urlToBuf(parts[1]));
+    const payload = JSON.parse(jsonText);
+    if (payload?.shopId) optOutOfPull(payload.shopId);
+  } catch {
+    // Best-effort — if this fails, the device just behaves as before (no opt-out).
+  }
 }

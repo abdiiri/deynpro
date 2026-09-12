@@ -1,38 +1,28 @@
 import { useEffect, useState } from 'react';
-import { checkCloudSnapshot, pullCloudSnapshot, pushCloudSnapshot, type CloudSnapshotInfo } from '@/lib/license';
+import { checkCloudSnapshot, pushCloudSnapshot, type CloudSnapshotInfo } from '@/lib/license';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { CloudUpload, CloudDownload, RefreshCw, Loader2 } from 'lucide-react';
+import { RefreshCw, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
 /**
- * Manual cloud sync control, for the common real-world case in
- * ContinueDataPrompt.tsx's automatic flow doesn't cover: two devices
- * that are BOTH already in use, and the person wants this one to catch
- * up with whatever the other device has (e.g. "I added a product on my
- * phone, why doesn't my PC show it?").
+ * Manual cloud sync control, for the common real-world case
+ * ContinueDataPrompt.tsx's automatic flow doesn't cover: two (or more)
+ * devices that are BOTH already in use, and the person wants this one to
+ * catch up with whatever another device added (e.g. "I added a product
+ * on my phone, why doesn't my PC show it yet?").
  *
- * This is deliberately manual, not automatic — pulling always overwrites
- * whatever is on THIS device, so it should only happen when the person
- * explicitly asks for it.
+ * Safe to press any time, on any device, in any order: this reconciles
+ * this device's data with the cloud record-by-record — keeping whichever
+ * side has the newer change per record — rather than replacing one side
+ * wholesale. Nothing gets erased just because another device hasn't
+ * synced recently, no matter how many devices are in use.
  */
 export function CloudSyncPanel() {
   const [info, setInfo] = useState<CloudSnapshotInfo | null>(null);
   const [loadingInfo, setLoadingInfo] = useState(true);
-  const [pushing, setPushing] = useState(false);
-  const [pulling, setPulling] = useState(false);
-  const [confirmPullOpen, setConfirmPullOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   const refreshInfo = () => {
     setLoadingInfo(true);
@@ -45,30 +35,16 @@ export function CloudSyncPanel() {
     refreshInfo();
   }, []);
 
-  const handlePush = async () => {
-    setPushing(true);
+  const handleSync = async () => {
+    setSyncing(true);
     const result = await pushCloudSnapshot();
-    setPushing(false);
+    setSyncing(false);
     if (result.ok) {
-      toast.success('This device\'s data was sent to the cloud');
+      toast.success("Synced — this device and the cloud now match");
       refreshInfo();
     } else {
       toast.error(result.error || 'Could not sync right now — check your connection.');
     }
-  };
-
-  const handlePull = async () => {
-    setPulling(true);
-    const result = await pullCloudSnapshot();
-    if (!result.ok) {
-      setPulling(false);
-      setConfirmPullOpen(false);
-      toast.error(result.error || 'Could not download the cloud data.');
-      return;
-    }
-    toast.success('This device now has the latest shared data');
-    // Full reload so every cached query and screen reflects the new data.
-    window.location.reload();
   };
 
   return (
@@ -80,8 +56,8 @@ export function CloudSyncPanel() {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          If you use this shop's code on more than one device, changes don't appear on other devices automatically.
-          Use these buttons to send this device's data to the cloud, or bring in the latest data another device saved.
+          If this shop's code is used on more than one device, this brings them in sync — anything
+          new on this device or any other device is combined, nothing is deleted or overwritten.
         </p>
 
         <div className="text-sm">
@@ -89,7 +65,7 @@ export function CloudSyncPanel() {
             <span className="text-muted-foreground">Checking cloud status…</span>
           ) : info?.exists ? (
             <span className="text-muted-foreground">
-              Cloud copy last updated {info.updatedAt ? format(new Date(info.updatedAt), 'PPP p') : 'recently'}
+              Last synced {info.updatedAt ? format(new Date(info.updatedAt), 'PPP p') : 'recently'}
               {info.recordCount != null && <> · {info.recordCount.toLocaleString()} records</>}
             </span>
           ) : (
@@ -97,37 +73,11 @@ export function CloudSyncPanel() {
           )}
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" className="gap-2" onClick={handlePush} disabled={pushing}>
-            {pushing ? <Loader2 className="animate-spin" size={14} /> : <CloudUpload size={14} />}
-            Send this device's data to the cloud
-          </Button>
-          <Button size="sm" variant="outline" className="gap-2" onClick={() => setConfirmPullOpen(true)} disabled={pulling}>
-            <CloudDownload size={14} />
-            Bring in the latest cloud data
-          </Button>
-        </div>
+        <Button size="sm" variant="outline" className="gap-2" onClick={handleSync} disabled={syncing}>
+          {syncing ? <Loader2 className="animate-spin" size={14} /> : <RefreshCw size={14} />}
+          {syncing ? 'Syncing…' : 'Sync now'}
+        </Button>
       </CardContent>
-
-      <AlertDialog open={confirmPullOpen} onOpenChange={(open) => !pulling && setConfirmPullOpen(open)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Replace this device's data?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will overwrite everything currently on this device with the last data saved to the cloud
-              {info?.updatedAt && <> (from {format(new Date(info.updatedAt), 'PPP p')})</>}. Anything added on this
-              device since then — and not yet sent to the cloud — will be lost. This can't be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={pulling}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handlePull} disabled={pulling} className="gap-2">
-              {pulling && <Loader2 className="animate-spin" size={16} />}
-              {pulling ? 'Downloading…' : 'Yes, replace it'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Card>
   );
 }

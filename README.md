@@ -19,14 +19,55 @@ right backend automatically:
   `src/lib/webDB.ts` — same tables, same soft-delete behavior, same
   stock triggers. No server, no account, no setup required.
 
-Data in the web build lives in that browser's IndexedDB storage —
-it's private to each device/browser, persists across restarts, and
-isn't wiped by normal browsing. It is **not** synced between devices.
-If you want the same data to show up on every device (e.g. a phone at
-the counter and a laptop in the back office), swap `webDB.ts` for a
-hosted Postgres backend (Supabase is the easiest — the codebase used
-to have a Supabase integration, in `src/integrations/supabase/`, that
-can be revived) and it becomes real multi-device sync.
+Data lives on each device (per shop — see below), not in one central
+database. It's fast and works fully offline, but two devices don't
+show each other's changes automatically. That's what cloud snapshots
+(next section) are for.
+
+### Same shop, multiple devices
+
+Each shop's data is scoped by `shopId` — both the per-shop SQLite file
+(desktop) and the per-shop IndexedDB database (browser) — so two
+different shops can safely use the same computer or browser without
+ever seeing each other's data. Existing single-shop installs carry
+their old data forward automatically, once, the first time they open
+after this update.
+
+To actually show the *same* shop's data across multiple devices (a
+phone at the counter and a laptop in the back office — or several of
+each), there's a cloud snapshot system (`src/lib/cloudSnapshot.ts`,
+`electron/license.cjs`): not live/realtime, but a periodic **merge**,
+safe with any number of devices. Every sync fetches the cloud's copy,
+merges it with this device's data record-by-record (each table's rows,
+matched by `id` — whichever side has the newer `updated_at` wins per
+record, and a record that only exists on one side is always kept),
+then saves the merged result both back to the device and up to the
+cloud. Nobody's sync can silently erase what another device added —
+which a simpler "whichever device pushed last wins" design could do
+once more than one device is in regular use.
+
+- **New device activating an existing shop's code:** if the cloud has
+  a snapshot and this device is empty, it's offered a "continue with
+  this shop's data?" choice before entering the app. Choosing "start
+  fresh" instead means this device keeps contributing its own new data
+  to the shared cloud copy, but stops pulling other devices' data back
+  into itself, so that choice doesn't get quietly undone by the next
+  background sync.
+- **Background sync:** every ~5 minutes while the app is open, and
+  when it's closed/backgrounded, this device reconciles with the cloud
+  automatically (`useCloudSync`) — both directions, in one operation.
+- **Two devices already in use:** Settings has a "Cloud Data Sync"
+  panel with a single "Sync now" button that does the same safe
+  reconcile on demand.
+
+One trade-off worth knowing: if two devices edit the *exact same*
+record within the same sync window (~5 min), one edit wins and the
+other is lost — that's expected, and not worth solving for a shop's
+scale of use.
+
+This needs the same Supabase project as device limits below — see
+`supabase/schema.sql`'s cloud-snapshot section. Without it, each
+device just keeps its own separate data, same as if this didn't exist.
 
 ## License codes
 

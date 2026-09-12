@@ -95,4 +95,5 @@ contextBridge.exposeInMainWorld('electronLicense', {
   pullSnapshot:  ()     => ipcRenderer.invoke('license:pull-snapshot'),
   pushSnapshot:  ()     => ipcRenderer.invoke('license:push-snapshot'),
   checkSnapshot: ()     => ipcRenderer.invoke('license:check-snapshot'),
+  startFreshSnapshot: () => ipcRenderer.invoke('license:start-fresh-snapshot'),
 });
