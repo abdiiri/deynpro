@@ -104,7 +104,7 @@ export default function ReorderList() {
 
   return (
     <div className="space-y-4 pb-20 md:pb-0">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <ShoppingCart size={24} className="text-primary" /> Reorder List
@@ -113,7 +113,7 @@ export default function ReorderList() {
             {lowStock.length} product{lowStock.length !== 1 ? 's' : ''} need restocking
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" className="gap-2" onClick={handleShare} disabled={!lowStock.length}>
             <Share2 size={16} /> Share
           </Button>

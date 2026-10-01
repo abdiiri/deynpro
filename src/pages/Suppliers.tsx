@@ -3,74 +3,79 @@ import { useSuppliers, useAddSupplier, useUpdateSupplier, useDeleteSupplier, Sup
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, Search, Pencil, Trash2, Phone, FileText, MapPin } from 'lucide-react';
+import { FormSheet, FormField, formInputClass } from '@/components/FormSheet';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Plus, Search, Pencil, Trash2, Phone, FileText, MapPin, FileSpreadsheet, MoreVertical } from 'lucide-react';
 import { toast } from 'sonner';
-
-function SupplierForm({ supplier, onSubmit, isPending, onCancel }: {
-  supplier?: Supplier;
-  onSubmit: (data: { name: string; phone?: string; description?: string; address?: string }) => void;
-  isPending: boolean;
-  onCancel?: () => void;
-}) {
-  const [name, setName] = useState(supplier?.name || '');
-  const [phone, setPhone] = useState(supplier?.phone || '');
-  const [description, setDescription] = useState(supplier?.description || '');
-  const [address, setAddress] = useState(supplier?.address || '');
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit({ name, phone: phone || undefined, description: description || undefined, address: address || undefined });
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <Input placeholder="Supplier name *" value={name} onChange={e => setName(e.target.value)} required />
-      <Input placeholder="Phone" value={phone} onChange={e => setPhone(e.target.value)} />
-      <Input placeholder="Description (e.g. Wholesale rice)" value={description} onChange={e => setDescription(e.target.value)} />
-      <Input placeholder="Address" value={address} onChange={e => setAddress(e.target.value)} />
-      <div className="flex gap-2">
-        {onCancel && <Button type="button" variant="outline" onClick={onCancel} className="flex-1">Cancel</Button>}
-        <Button type="submit" className="flex-1 gradient-primary border-0" disabled={isPending}>
-          {isPending ? 'Saving...' : supplier ? 'Update' : 'Add Supplier'}
-        </Button>
-      </div>
-    </form>
-  );
-}
+import { useShopSettings } from '@/hooks/useShopSettings';
+import { exportToExcel } from '@/lib/excelExport';
 
 export default function Suppliers() {
+  const { data: shopSettings } = useShopSettings();
   const { data: suppliers, isLoading } = useSuppliers();
   const addSupplier = useAddSupplier();
   const updateSupplier = useUpdateSupplier();
   const deleteSupplier = useDeleteSupplier();
   const [search, setSearch] = useState('');
-  const [addOpen, setAddOpen] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [description, setDescription] = useState('');
+  const [address, setAddress] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   const filtered = suppliers?.filter(s =>
     s.name.toLowerCase().includes(search.toLowerCase()) ||
     (s.phone || '').includes(search)
   ) || [];
 
-  const handleAdd = async (data: { name: string; phone?: string; description?: string; address?: string }) => {
+  const resetForm = () => { setName(''); setPhone(''); setDescription(''); setAddress(''); setEditingId(null); };
+  const openAdd = () => { resetForm(); setSheetOpen(true); };
+  const openEdit = (supplier: Supplier) => {
+    setEditingId(supplier.id);
+    setName(supplier.name);
+    setPhone(supplier.phone || '');
+    setDescription(supplier.description || '');
+    setAddress(supplier.address || '');
+    setSheetOpen(true);
+  };
+  const handleSheetOpenChange = (open: boolean) => {
+    setSheetOpen(open);
+    if (!open) resetForm();
+  };
+
+  const handleExportExcel = () => {
+    const rows = (suppliers || []).map(sp => ({
+      Name: sp.name,
+      Phone: sp.phone || '',
+      Description: sp.description || '',
+      Address: sp.address || '',
+    }));
+    exportToExcel(`${shopSettings?.shop_name || 'Shop'}_Suppliers`, [{ name: 'Suppliers', rows }]);
+    toast.success('Excel downloaded');
+  };
+
+  const handleSubmit = async () => {
+    const data = { name, phone: phone || undefined, description: description || undefined, address: address || undefined };
     try {
-      await addSupplier.mutateAsync(data);
-      toast.success('Supplier added!');
-      setAddOpen(false);
+      if (editingId) {
+        await updateSupplier.mutateAsync({ id: editingId, ...data });
+        toast.success('Supplier updated!');
+      } else {
+        await addSupplier.mutateAsync(data);
+        toast.success('Supplier added!');
+      }
+      setSheetOpen(false);
+      resetForm();
     } catch (err: any) { toast.error(err.message); }
   };
 
-  const handleUpdate = async (id: string, data: { name: string; phone?: string; description?: string; address?: string }) => {
-    try {
-      await updateSupplier.mutateAsync({ id, ...data });
-      toast.success('Supplier updated!');
-      setEditingId(null);
-    } catch (err: any) { toast.error(err.message); }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm('Delete this supplier?')) return;
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    setDeleteTarget(null);
     try {
       await deleteSupplier.mutateAsync(id);
       toast.success('Supplier deleted');
@@ -79,25 +84,36 @@ export default function Suppliers() {
 
   return (
     <div className="space-y-4 pb-20 md:pb-0">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Suppliers</h1>
           <p className="text-sm text-muted-foreground">{suppliers?.length || 0} total</p>
         </div>
-        <Dialog open={addOpen} onOpenChange={setAddOpen}>
-          <DialogTrigger asChild>
-            <Button className="gradient-primary border-0 gap-1"><Plus size={16} /> Add</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Add Supplier</DialogTitle></DialogHeader>
-            <SupplierForm onSubmit={handleAdd} isPending={addSupplier.isPending} />
-          </DialogContent>
-        </Dialog>
+        <div className="flex items-center gap-2">
+          {/* Desktop actions */}
+          <Button variant="outline" className="hidden gap-1 md:inline-flex" onClick={handleExportExcel}>
+            <FileSpreadsheet size={16} /> Excel
+          </Button>
+          <Button className="hidden gradient-primary border-0 gap-1 md:inline-flex" onClick={openAdd}>
+            <Plus size={16} /> Add
+          </Button>
+          {/* Mobile overflow menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="md:hidden" aria-label="More">
+                <MoreVertical size={18} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleExportExcel}><FileSpreadsheet size={14} className="me-2" /> Excel</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       <div className="relative">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <Input placeholder="Search suppliers..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+        <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <Input placeholder="Search suppliers..." value={search} onChange={e => setSearch(e.target.value)} className="ps-9" />
       </div>
 
       {isLoading && <div className="space-y-3">{[1, 2, 3].map(i => <div key={i} className="h-20 bg-muted rounded-xl animate-pulse" />)}</div>}
@@ -106,27 +122,18 @@ export default function Suppliers() {
         {filtered.map(supplier => (
           <Card key={supplier.id} className="shadow-card">
             <CardContent className="p-4">
-              {editingId === supplier.id ? (
-                <SupplierForm
-                  supplier={supplier}
-                  onSubmit={(data) => handleUpdate(supplier.id, data)}
-                  isPending={updateSupplier.isPending}
-                  onCancel={() => setEditingId(null)}
-                />
-              ) : (
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 space-y-1">
                     <p className="font-medium text-card-foreground">{supplier.name}</p>
                     {supplier.phone && <p className="text-sm text-muted-foreground flex items-center gap-1"><Phone size={12} /> {supplier.phone}</p>}
                     {supplier.description && <p className="text-sm text-muted-foreground flex items-center gap-1"><FileText size={12} /> {supplier.description}</p>}
                     {supplier.address && <p className="text-sm text-muted-foreground flex items-center gap-1"><MapPin size={12} /> {supplier.address}</p>}
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => setEditingId(supplier.id)}><Pencil size={14} /></Button>
-                    <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(supplier.id)}><Trash2 size={14} /></Button>
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(supplier)}><Pencil size={14} /></Button>
+                    <Button variant="ghost" size="icon" className="text-destructive" onClick={() => setDeleteTarget({ id: supplier.id, name: supplier.name })}><Trash2 size={14} /></Button>
                   </div>
                 </div>
-              )}
             </CardContent>
           </Card>
         ))}
@@ -136,6 +143,54 @@ export default function Suppliers() {
           </p>
         )}
       </div>
+      {/* Floating add button (mobile) */}
+      {!sheetOpen && (
+        <Button onClick={openAdd} aria-label="Add supplier"
+          className="fixed end-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 h-14 w-14 rounded-full gradient-primary border-0 p-0 shadow-lg md:hidden">
+          <Plus size={26} />
+        </Button>
+      )}
+
+      {/* Add / Edit form */}
+      <FormSheet
+        open={sheetOpen}
+        onOpenChange={handleSheetOpenChange}
+        title={editingId ? 'Edit Supplier' : 'Add Supplier'}
+        onSubmit={handleSubmit}
+        submitLabel={editingId ? 'Update' : 'Add Supplier'}
+        isPending={addSupplier.isPending || updateSupplier.isPending}
+      >
+        <FormField label="Supplier name *" htmlFor="sup-name">
+          <Input id="sup-name" className={formInputClass} value={name} onChange={e => setName(e.target.value)} required autoComplete="off" />
+        </FormField>
+        <FormField label="Phone" htmlFor="sup-phone">
+          <Input id="sup-phone" className={formInputClass} type="tel" inputMode="tel" value={phone} onChange={e => setPhone(e.target.value)} autoComplete="off" />
+        </FormField>
+        <FormField label="Description" htmlFor="sup-desc" hint="e.g. Wholesale rice">
+          <Input id="sup-desc" className={formInputClass} value={description} onChange={e => setDescription(e.target.value)} />
+        </FormField>
+        <FormField label="Address" htmlFor="sup-addr">
+          <Input id="sup-addr" className={formInputClass} value={address} onChange={e => setAddress(e.target.value)} />
+        </FormField>
+      </FormSheet>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete supplier</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget ? `${deleteTarget.name} — ` : ''}Delete this supplier?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

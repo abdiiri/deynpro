@@ -8,10 +8,10 @@ import { Table, TableHeader, TableHead, TableBody, TableRow, TableCell } from '@
 import { CheckCircle, TrendingUp, TrendingDown, DollarSign, Smartphone, CreditCard, ClipboardList, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-
-function formatKES(n: number) { return `KES ${n.toLocaleString(undefined, { minimumFractionDigits: 0 })}`; }
+import { useMoney } from '@/hooks/useCurrencySettings';
 
 export default function EndOfDay() {
+  const { fmt: money, code: currencyCode } = useMoney();
   // Compute today's date inside the component so it's always fresh
   const today = format(new Date(), 'yyyy-MM-dd');
   const { data: live } = useTodayEodData(today);
@@ -71,12 +71,12 @@ export default function EndOfDay() {
 
   return (
     <div className="space-y-6 print:space-y-3">
-      <div className="flex items-center justify-between print:hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
         <div>
           <h1 className="text-2xl font-bold text-foreground">End of Day Report</h1>
           <p className="text-sm text-muted-foreground">{format(new Date(), 'EEEE, dd MMMM yyyy')}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={handlePrint} className="gap-2">
             <Printer size={15} /> Print
           </Button>
@@ -107,7 +107,7 @@ export default function EndOfDay() {
                 <Icon size={15} className={color} />
               </div>
               <p className="text-xs text-muted-foreground">{label}</p>
-              <p className={`text-lg font-bold mt-0.5 ${color}`}>{formatKES(value)}</p>
+              <p className={`text-base sm:text-lg font-bold mt-0.5 break-words ${color}`}>{money(value)}</p>
             </CardContent>
           </Card>
         ))}
@@ -118,7 +118,7 @@ export default function EndOfDay() {
         <Card className="border-2 border-primary/20">
           <CardContent className="p-4">
             <p className="text-xs text-muted-foreground">Total Revenue</p>
-            <p className="text-2xl font-bold text-primary">{formatKES(data.total_sales)}</p>
+            <p className="text-2xl font-bold text-primary">{money(data.total_sales)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -126,8 +126,8 @@ export default function EndOfDay() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground">Profit (S.P − B.P)</p>
-                <p className={`text-xl font-bold ${data.gross_profit >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>{formatKES(data.gross_profit)}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Buying cost: {formatKES(data.total_cost)}</p>
+                <p className={`text-xl font-bold ${data.gross_profit >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>{money(data.gross_profit)}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Buying cost: {money(data.total_cost)}</p>
               </div>
               {data.gross_profit >= 0
                 ? <TrendingUp size={22} className="text-emerald-500" />
@@ -140,8 +140,8 @@ export default function EndOfDay() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-muted-foreground">After Expenses</p>
-                <p className={`text-xl font-bold ${data.net_profit >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>{formatKES(data.net_profit)}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Expenses: {formatKES(data.total_expenses)}</p>
+                <p className={`text-xl font-bold ${data.net_profit >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>{money(data.net_profit)}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Expenses: {money(data.total_expenses)}</p>
               </div>
               {data.net_profit >= 0
                 ? <TrendingUp size={22} className="text-emerald-500" />
@@ -161,23 +161,23 @@ export default function EndOfDay() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Opening Float (KES)</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Opening Float ({currencyCode})</label>
               <Input
-                type="number" min={0} step="0.01"
+                type="number" inputMode="decimal" min={0} step="0.01"
                 placeholder="0.00"
                 value={openingFloat}
                 onChange={e => setOpeningFloat(e.target.value)}
-                className="h-9 text-sm print:border-0 print:shadow-none"
+                className="h-10 sm:h-9 text-base sm:text-sm print:border-0 print:shadow-none"
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Closing Float — Actual (KES)</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Closing Float — Actual ({currencyCode})</label>
               <Input
-                type="number" min={0} step="0.01"
+                type="number" inputMode="decimal" min={0} step="0.01"
                 placeholder="0.00"
                 value={closingFloat}
                 onChange={e => setClosingFloat(e.target.value)}
-                className="h-9 text-sm print:border-0 print:shadow-none"
+                className="h-10 sm:h-9 text-base sm:text-sm print:border-0 print:shadow-none"
               />
             </div>
           </div>
@@ -188,26 +188,26 @@ export default function EndOfDay() {
             <tbody>
               <tr className="border-b border-border">
                 <td className="py-2 text-muted-foreground">Opening Float</td>
-                <td className="py-2 text-right font-medium">{formatKES(parseFloat(openingFloat) || 0)}</td>
+                <td className="py-2 text-right font-medium">{money(parseFloat(openingFloat) || 0)}</td>
               </tr>
               <tr className="border-b border-border">
                 <td className="py-2 text-muted-foreground">+ Cash Sales</td>
-                <td className="py-2 text-right font-medium text-emerald-600">+{formatKES(data.cash_sales)}</td>
+                <td className="py-2 text-right font-medium text-emerald-600">+{money(data.cash_sales)}</td>
               </tr>
               <tr className="border-b border-border">
                 <td className="py-2 font-semibold">= Expected in Drawer</td>
-                <td className="py-2 text-right font-bold text-primary">{formatKES(expectedCash)}</td>
+                <td className="py-2 text-right font-bold text-primary">{money(expectedCash)}</td>
               </tr>
               <tr className="border-b border-border">
                 <td className="py-2 text-muted-foreground">Actual in Drawer</td>
-                <td className="py-2 text-right font-medium">{formatKES(parseFloat(closingFloat) || 0)}</td>
+                <td className="py-2 text-right font-medium">{money(parseFloat(closingFloat) || 0)}</td>
               </tr>
               {closingFloat !== '' && (
                 <tr>
                   <td className="py-2 font-semibold">Difference</td>
                   <td className={`py-2 text-right font-bold ${(parseFloat(closingFloat) || 0) - expectedCash >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>
                     {(parseFloat(closingFloat) || 0) - expectedCash >= 0 ? '+' : ''}
-                    {formatKES((parseFloat(closingFloat) || 0) - expectedCash)}
+                    {money((parseFloat(closingFloat) || 0) - expectedCash)}
                     {' '}
                     <span className="font-normal text-xs text-muted-foreground">
                       {Math.abs((parseFloat(closingFloat) || 0) - expectedCash) < 0.01 ? '✓ Balanced' : (parseFloat(closingFloat) || 0) < expectedCash ? '(Short)' : '(Over)'}
@@ -237,6 +237,27 @@ export default function EndOfDay() {
             <CardTitle className="text-base font-semibold">Previous Reports</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
+            {/* Mobile: cards */}
+            <div className="md:hidden divide-y divide-border">
+              {history.slice(0, 14).map(r => (
+                <div key={r.id} className="px-4 py-3 space-y-2">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm font-medium">{format(new Date(r.report_date), 'dd MMM yyyy')}</span>
+                    <span className="text-base font-bold text-primary">{money(r.total_sales)}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Cash</span><span className="font-medium text-emerald-600">{money(r.cash_sales)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">M-Pesa</span><span className="font-medium text-blue-600">{money(r.mpesa_sales)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Gross</span><span className={`font-medium ${r.gross_profit >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>{money(r.gross_profit)}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Net</span><span className={`font-medium ${r.net_profit >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>{money(r.net_profit)}</span></div>
+                  </div>
+                  {r.notes && <p className="text-xs text-muted-foreground">{r.notes}</p>}
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop: table */}
+            <div className="hidden md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -255,16 +276,17 @@ export default function EndOfDay() {
                     <TableCell className="text-sm font-medium">
                       {format(new Date(r.report_date), 'dd MMM yyyy')}
                     </TableCell>
-                    <TableCell className="text-right text-sm font-semibold text-primary">{formatKES(r.total_sales)}</TableCell>
-                    <TableCell className="text-right text-sm text-emerald-600">{formatKES(r.cash_sales)}</TableCell>
-                    <TableCell className="text-right text-sm text-blue-600">{formatKES(r.mpesa_sales)}</TableCell>
-                    <TableCell className={`text-right text-sm font-medium ${r.gross_profit >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>{formatKES(r.gross_profit)}</TableCell>
-                    <TableCell className={`text-right text-sm font-medium ${r.net_profit >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>{formatKES(r.net_profit)}</TableCell>
+                    <TableCell className="text-right text-sm font-semibold text-primary">{money(r.total_sales)}</TableCell>
+                    <TableCell className="text-right text-sm text-emerald-600">{money(r.cash_sales)}</TableCell>
+                    <TableCell className="text-right text-sm text-blue-600">{money(r.mpesa_sales)}</TableCell>
+                    <TableCell className={`text-right text-sm font-medium ${r.gross_profit >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>{money(r.gross_profit)}</TableCell>
+                    <TableCell className={`text-right text-sm font-medium ${r.net_profit >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>{money(r.net_profit)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate">{r.notes || '—'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
       )}

@@ -22,6 +22,7 @@ export default {
     endOfDay: 'Dhamaadka Maalinta',
     settings: 'Dejinta',
     reorderList: 'Liiska Dalabka',
+    more: 'Wax Dheeraad',
   },
   common: {
     add: 'Ku dar',
@@ -128,7 +129,7 @@ export default {
     paymentRecorded: 'Bixinta waa la diiwaangeliyay',
     txUpdated: 'Macaamilka waa la cusboonaysiiyay',
     invalidAmount: 'Geli qadar sax ah',
-    amountKes: 'Qadarka (KES)',
+    amountKes: 'Qadarka ({{currency}})',
     descOptional: 'Sharaxaad (ikhtiyaari)',
     dueDateOptional: 'Taariikhda bixinta (ikhtiyaari)',
     dueDate: 'Taariikhda bixinta',
@@ -177,8 +178,8 @@ export default {
     notEnoughStock: 'Bakhaar kuma filna',
     outOfStock: 'Ma jiraan',
     cartIsEmpty: 'Gaadhigu waa madhan yahay',
-    belowCost: '"{{name}}" qiimihiisu waa ka hooseeya kharashka (KES {{cost}}). Kor u qaad qiimaha si aad u sii wadato.',
-    priceCantBeBelowCost: 'Qiimuhu kama hooseyn karo kharashka (KES {{cost}})',
+    belowCost: '"{{name}}" qiimihiisu waa ka hooseeya kharashka ({{currency}} {{cost}}). Kor u qaad qiimaha si aad u sii wadato.',
+    priceCantBeBelowCost: 'Qiimuhu kama hooseyn karo kharashka ({{currency}} {{cost}})',
     creditRequiresCustomer: 'Daynta waxay u baahan tahay macmiil diiwaan gashan',
     selectCustomerFirst: 'Marka hore dooro macmiil diiwaan gashan si aad u isticmaasho amaah',
     paymentChangedToCash: 'Lacag-bixinta waxaa loo beddelay Caddaan — daynta waxay u baahan tahay macmiil',
@@ -194,7 +195,7 @@ export default {
   },
   expenses: {
     title: 'Kharashyada',
-    totalLabel: 'Wadarta: KES {{amount}}',
+    totalLabel: 'Wadarta: {{currency}} {{amount}}',
     addExpense: 'Ku dar Kharash',
     titleField: 'Cinwaan *',
     amountField: 'Qadar *',
@@ -278,9 +279,9 @@ export default {
     subtotal: 'Wadarta yar',
   },
   whatsapp: {
-    debtReminder: 'Salaan {{name}},\n\nKani waa xasuusin in aad leedahay dayn KES {{amount}}{{dueClause}}.\n\nFadlan bixi sida ugu dhakhsaha badan.\n\nMahadsanid! 🙏',
+    debtReminder: 'Salaan {{name}},\n\nKani waa xasuusin in aad leedahay dayn {{currency}} {{amount}}{{dueClause}}.\n\nFadlan bixi sida ugu dhakhsaha badan.\n\nMahadsanid! 🙏',
     dueClause: ' oo lagu rabay {{date}}',
-    debtSummary: 'Salaan {{name}}, waxaad leedahay dayn guud KES {{amount}}. Fadlan dhaqso u bixi. Mahadsanid!',
+    debtSummary: 'Salaan {{name}}, waxaad leedahay dayn guud {{currency}} {{amount}}. Fadlan dhaqso u bixi. Mahadsanid!',
     thanks: 'Salaan {{name}}! Mahadsanid ganacsigaaga. 🙏',
   },
 };

@@ -5,6 +5,7 @@ import { Printer, Download, X } from 'lucide-react';
 import { format } from 'date-fns';
 import type { Customer, Transaction } from '@/hooks/useCustomers';
 import type { ShopSettings } from '@/hooks/useShopSettings';
+import { useMoney } from '@/hooks/useCurrencySettings';
 
 interface Props {
   open: boolean;
@@ -12,10 +13,6 @@ interface Props {
   customer: Customer | null;
   transactions: Transaction[];
   shop?: ShopSettings | null;
-}
-
-function formatKES(n: number) {
-  return `KES ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 const STYLE = `
@@ -42,6 +39,8 @@ const STYLE = `
 `;
 
 export function CustomerStatementModal({ open, onClose, customer, transactions, shop }: Props) {
+  const { fmt } = useMoney();
+  const money = (n: number) => fmt(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const printRef = useRef<HTMLDivElement>(null);
 
   const ledger = useMemo(() => {
@@ -119,7 +118,7 @@ export function CustomerStatementModal({ open, onClose, customer, transactions, 
               <tbody>
                 <tr><td className="label" style={{ color: '#555', width: 110 }}>Customer</td><td style={{ fontWeight: 'bold' }}>{customer.name}</td></tr>
                 <tr><td className="label" style={{ color: '#555' }}>Phone</td><td>{customer.phone}</td></tr>
-                {customer.credit_limit > 0 && <tr><td className="label" style={{ color: '#555' }}>Credit Limit</td><td>{formatKES(customer.credit_limit)}</td></tr>}
+                {customer.credit_limit > 0 && <tr><td className="label" style={{ color: '#555' }}>Credit Limit</td><td>{money(customer.credit_limit)}</td></tr>}
               </tbody>
             </table>
 
@@ -141,13 +140,13 @@ export function CustomerStatementModal({ open, onClose, customer, transactions, 
                     <td style={{ padding: '6px 4px', borderBottom: '1px solid #ddd' }}>{format(new Date(tx.date), 'dd/MM/yyyy')}</td>
                     <td style={{ padding: '6px 4px', borderBottom: '1px solid #ddd' }}>{tx.description || (tx.type === 'debt' ? 'Debt' : 'Payment')}</td>
                     <td className="r debt-amt" style={{ textAlign: 'right', padding: '6px 4px', borderBottom: '1px solid #ddd', color: '#b91c1c' }}>
-                      {tx.type === 'debt' ? formatKES(tx.amount) : ''}
+                      {tx.type === 'debt' ? money(tx.amount) : ''}
                     </td>
                     <td className="r payment-amt" style={{ textAlign: 'right', padding: '6px 4px', borderBottom: '1px solid #ddd', color: '#15803d' }}>
-                      {tx.type === 'payment' ? formatKES(tx.amount) : ''}
+                      {tx.type === 'payment' ? money(tx.amount) : ''}
                     </td>
                     <td className="r" style={{ textAlign: 'right', padding: '6px 4px', borderBottom: '1px solid #ddd', fontWeight: 500 }}>
-                      {formatKES(tx.runningBalance)}
+                      {money(tx.runningBalance)}
                     </td>
                   </tr>
                 ))}
@@ -156,13 +155,13 @@ export function CustomerStatementModal({ open, onClose, customer, transactions, 
 
             <div className="summary" style={{ marginTop: 16, width: 260, marginLeft: 'auto' }}>
               <div className="summary-row" style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                <span>Total Debt</span><span>{formatKES(totalDebt)}</span>
+                <span>Total Debt</span><span>{money(totalDebt)}</span>
               </div>
               <div className="summary-row" style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-                <span>Total Paid</span><span>{formatKES(totalPaid)}</span>
+                <span>Total Paid</span><span>{money(totalPaid)}</span>
               </div>
               <div className="summary-row total" style={{ display: 'flex', justifyContent: 'space-between', borderTop: '2px solid #222', fontWeight: 'bold', fontSize: 14, paddingTop: 8, marginTop: 4 }}>
-                <span>Closing Balance</span><span>{formatKES(closingBalance)}</span>
+                <span>Closing Balance</span><span>{money(closingBalance)}</span>
               </div>
             </div>
 

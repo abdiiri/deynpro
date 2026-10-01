@@ -81,7 +81,7 @@ export default function Notifications() {
   return (
     <div className="space-y-5 pb-20 md:pb-0">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <Bell size={22} /> Notifications

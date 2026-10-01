@@ -7,28 +7,68 @@ import { useProductCategories } from '@/hooks/useProductCategories';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { BarcodeScanner } from '@/components/BarcodeScanner';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { cn } from '@/lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Plus, Search, Pencil, Trash2, FileSpreadsheet, Upload } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, FileSpreadsheet, Upload, MoreVertical, ChevronDown, ScanLine } from 'lucide-react';
 import { toast } from 'sonner';
 import { exportToExcel } from '@/lib/excelExport';
 import * as XLSX from 'xlsx';
 import { useCurrencySettings, formatCurrency, toBaseCurrency } from '@/hooks/useCurrencySettings';
 
 
-function ProductForm({ product, suppliers, categories, onSubmit, isPending, onCancel, currency }: {
+const COMMON_UNITS = ['pcs', 'kg', 'l', 'box', 'carton'];
+const ALL_UNITS = ['pcs', 'kg', 'g', 'l', 'ml', 'box', 'pack', 'dozen', 'bag', 'bottle', 'carton', 'tray', 'roll'];
+
+const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cn('space-y-1.5', className)}>
+      <label className="text-sm font-medium text-foreground">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Section({ title, hint, open, onToggle, children }: {
+  title: string; hint?: string; open: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/30">
+      <button type="button" onClick={onToggle} aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 px-3 py-3 text-start">
+        <span>
+          <span className="block text-sm font-semibold text-foreground">{title}</span>
+          {hint && !open && <span className="block text-xs text-muted-foreground">{hint}</span>}
+        </span>
+        <ChevronDown size={18} className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && <div className="space-y-3 border-t border-border p-3">{children}</div>}
+    </div>
+  );
+}
+
+function ProductForm({ product, suppliers, categories, onSubmit, isPending, onCancel, onDelete, currency, className }: {
   product?: any;
   suppliers: any[];
   categories: string[];
   onSubmit: (data: any) => void;
   isPending: boolean;
   onCancel?: () => void;
+  onDelete?: () => void;
   currency?: any;
+  className?: string;
 }) {
+  const { t } = useTranslation();
   const [form, setForm] = useState({
     name: product?.name || '',
-    price: product?.price || '',
-    cost_price: product?.cost_price || '',
+    price: product?.price ?? '',
+    cost_price: product?.cost_price ?? '',
     quantity: product?.quantity ?? '',
     category: product?.category || '',
     description: product?.description || '',
@@ -38,18 +78,33 @@ function ProductForm({ product, suppliers, categories, onSubmit, isPending, onCa
     supplier_id: product?.supplier_id || '',
     unit: product?.unit || 'pcs',
     pack_name: product?.pack_name || '',
-    pieces_per_pack: product?.pieces_per_pack ?? '',
-    piece_price: product?.piece_price ?? '',
+    pieces_per_pack: product?.pieces_per_pack || '',
+    piece_price: product?.piece_price || '',
   });
+  const hasPackInitially = !!(product?.pack_name || product?.pieces_per_pack > 0);
+  const [packOpen, setPackOpen] = useState(hasPackInitially);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [otherUnit, setOtherUnit] = useState(() => !!product?.unit && !COMMON_UNITS.includes(product.unit));
 
   const update = (field: string, value: any) => setForm(prev => ({ ...prev, [field]: value }));
+
+  const price = Number(form.price);
+  const cost = Number(form.cost_price);
+  const ppp = Number(form.pieces_per_pack);
+  const profit = price - cost;
+  const margin = price > 0 ? (profit / price) * 100 : 0;
+  const packLabel = form.pack_name.trim();
+  const buyingLabel = currency && currency.purchase_currency !== currency.base_currency
+    ? `${t('products.buyingPrice', 'Buying price')} (${currency.purchase_currency})`
+    : t('products.buyingPrice', 'Buying price');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSubmit({
-      name: form.name,
-      price: Number(form.price),
-      cost_price: Number(form.cost_price),
+      name: form.name.trim(),
+      price,
+      cost_price: cost,
       quantity: Number(form.quantity),
       category: form.category || null,
       description: form.description || null,
@@ -59,75 +114,233 @@ function ProductForm({ product, suppliers, categories, onSubmit, isPending, onCa
       supplier_id: form.supplier_id || null,
       unit: form.unit || 'pcs',
       pack_name: form.pack_name || null,
-      pieces_per_pack: Number(form.pieces_per_pack) || 0,
+      pieces_per_pack: ppp || 0,
       // Auto-derive piece selling price from pack price ÷ ratio when not manually set
       piece_price: Number(form.piece_price) > 0
         ? Number(form.piece_price)
-        : (Number(form.pieces_per_pack) > 0 ? Number(form.price) / Number(form.pieces_per_pack) : 0),
+        : (ppp > 0 ? price / ppp : 0),
     });
   };
 
+  const numInput = 'h-11 text-base';
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
-      <Input placeholder="Product name *" value={form.name} onChange={e => update('name', e.target.value)} required />
-      <div className="grid grid-cols-2 gap-3">
-        <Input placeholder={currency && currency.purchase_currency !== currency.base_currency ? `Pack buying price (${currency.purchase_currency}) *` : "Pack buying price *"} type="number" min="0" step="0.01" value={form.cost_price} onChange={e => update('cost_price', e.target.value)} required />
-        <Input placeholder="Pack selling price *" type="number" min="0" step="0.01" value={form.price} onChange={e => update('price', e.target.value)} required />
-      </div>
-      <div className="grid grid-cols-3 gap-3">
-        <Input placeholder="Quantity *" type="number" min="0" value={form.quantity} onChange={e => update('quantity', e.target.value)} required className="col-span-1" />
-        <Select value={form.unit} onValueChange={v => update('unit', v)}>
-          <SelectTrigger><SelectValue placeholder="Unit" /></SelectTrigger>
-          <SelectContent>
-            {[
-              ['pcs', 'Pieces (pcs)'], ['kg', 'Kilogram (kg)'], ['g', 'Gram (g)'],
-              ['l', 'Litre (l)'], ['ml', 'Millilitre (ml)'], ['box', 'Box'],
-              ['pack', 'Pack'], ['dozen', 'Dozen'], ['bag', 'Bag'], ['bottle', 'Bottle'],
-              ['carton', 'Carton'], ['tray', 'Tray'], ['roll', 'Roll'], ['other', 'Other'],
-            ].map(([v, label]) => <SelectItem key={v} value={v}>{label}</SelectItem>)}
-          </SelectContent>
-        </Select>
-        <Input placeholder="Low stock alert" type="number" min="0" value={form.low_stock_threshold} onChange={e => update('low_stock_threshold', e.target.value)} />
-      </div>
-      <Select value={form.category} onValueChange={v => update('category', v)}>
-        <SelectTrigger><SelectValue placeholder="Category" /></SelectTrigger>
-        <SelectContent>{categoryList.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
-      </Select>
-      <Select value={form.supplier_id} onValueChange={v => update('supplier_id', v)}>
-        <SelectTrigger><SelectValue placeholder="Supplier (optional)" /></SelectTrigger>
-        <SelectContent>{suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
-      </Select>
-      <Input placeholder="Barcode" value={form.barcode} onChange={e => update('barcode', e.target.value)} />
-      <div>
-        <label className="text-xs text-muted-foreground">Expiry Date</label>
-        <Input type="date" value={form.expiry_date} onChange={e => update('expiry_date', e.target.value)} />
-      </div>
-      <Input placeholder="Description" value={form.description} onChange={e => update('description', e.target.value)} />
-      {/* Pack / Piece pricing */}
-      <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Pack / Piece Pricing (optional)</p>
-        <Input placeholder="Pack name (e.g. Carton, Dozen, Box)" value={form.pack_name} onChange={e => update('pack_name', e.target.value)} />
+    <form onSubmit={handleSubmit} className={cn('flex min-h-0 flex-1 flex-col', className)}>
+      {/* Scrollable body */}
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+        {/* Essentials */}
+        <Field label={`${t('products.nameLabel', 'Product name')} *`}>
+          <Input className={numInput} value={form.name} onChange={e => update('name', e.target.value)} required autoComplete="off" />
+        </Field>
+
+        <Field label={t('common.category')}>
+          <Select value={form.category} onValueChange={v => update('category', v)}>
+            <SelectTrigger className="h-11 text-base"><SelectValue placeholder={t('products.selectCategory', 'Select category')} /></SelectTrigger>
+            <SelectContent>{categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+          </Select>
+        </Field>
+
         <div className="grid grid-cols-2 gap-3">
-          <Input placeholder="Ratio (pieces per pack)" type="number" min="0" step="1" value={form.pieces_per_pack} onChange={e => update('pieces_per_pack', e.target.value)} />
-          <Input placeholder="Piece selling price" type="number" min="0" step="0.01" value={form.piece_price} onChange={e => update('piece_price', e.target.value)} />
+          <Field label={`${buyingLabel}${packLabel ? ` · ${packLabel}` : ''} *`}>
+            <Input className={numInput} inputMode="decimal" type="number" min="0" step="0.01" value={form.cost_price}
+              onChange={e => update('cost_price', e.target.value)} required />
+          </Field>
+          <Field label={`${t('products.sellingPriceLabel', 'Selling price')}${packLabel ? ` · ${packLabel}` : ''} *`}>
+            <Input className={numInput} inputMode="decimal" type="number" min="0" step="0.01" value={form.price}
+              onChange={e => update('price', e.target.value)} required />
+          </Field>
         </div>
-        {Number(form.pieces_per_pack) > 0 && Number(form.cost_price) > 0 && (
-          <p className="text-xs text-muted-foreground">
-            Piece buying price: <strong>{(Number(form.cost_price) / Number(form.pieces_per_pack)).toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong>
-            {!form.piece_price && Number(form.price) > 0 && (
-              <> &nbsp;·&nbsp; Piece selling price (auto): <strong>{(Number(form.price) / Number(form.pieces_per_pack)).toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></>
-            )}
-          </p>
+
+        {price > 0 && cost > 0 && (
+          <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">{t('products.profit', 'Profit')}</span>
+            <span className={cn('font-semibold', profit >= 0 ? 'text-success' : 'text-destructive')}>
+              {fmt(profit)} <span className="font-normal text-muted-foreground">· {margin.toFixed(1)}% {t('products.margin', 'margin')}</span>
+            </span>
+          </div>
         )}
-        <p className="text-xs text-muted-foreground">Piece buying price = pack buying price ÷ ratio. Leave ratio as 0 to disable piece sales.</p>
+
+        <Field label={`${t('common.quantity')} *`}>
+          <Input className={numInput} inputMode="decimal" type="number" min="0" step="any" value={form.quantity}
+            onChange={e => update('quantity', e.target.value)} required />
+        </Field>
+
+        <Field label={t('products.unit', 'Unit')}>
+          <div className="flex flex-wrap gap-2">
+            {COMMON_UNITS.map(u => (
+              <button key={u} type="button"
+                onClick={() => { update('unit', u); setOtherUnit(false); }}
+                className={cn('h-10 rounded-full border px-4 text-sm font-medium transition-colors',
+                  !otherUnit && form.unit === u ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-foreground')}>
+                {u}
+              </button>
+            ))}
+            <button type="button" onClick={() => setOtherUnit(true)}
+              className={cn('h-10 rounded-full border px-4 text-sm font-medium transition-colors',
+                otherUnit ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card text-foreground')}>
+              {t('products.other', 'Other')}
+            </button>
+          </div>
+          {otherUnit && (
+            <Select value={COMMON_UNITS.includes(form.unit) ? '' : form.unit} onValueChange={v => update('unit', v)}>
+              <SelectTrigger className="mt-2 h-11 text-base"><SelectValue placeholder={t('products.chooseUnit', 'Choose unit')} /></SelectTrigger>
+              <SelectContent>
+                {ALL_UNITS.filter(u => !COMMON_UNITS.includes(u)).map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+                {product?.unit && !ALL_UNITS.includes(product.unit) && <SelectItem value={product.unit}>{product.unit}</SelectItem>}
+              </SelectContent>
+            </Select>
+          )}
+        </Field>
+
+        {/* Pack / piece pricing (collapsed) */}
+        <Section
+          title={t('products.packPricing', 'Pack / piece pricing')}
+          hint={t('products.packHint', 'Optional · sell single pieces from a pack')}
+          open={packOpen} onToggle={() => setPackOpen(o => !o)}>
+          <Field label={t('products.packName', 'Pack name')}>
+            <Input className={numInput} placeholder="Carton, Dozen, Box…" value={form.pack_name} onChange={e => update('pack_name', e.target.value)} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t('products.piecesPerPack', 'Pieces per pack')}>
+              <Input className={numInput} inputMode="numeric" type="number" min="0" step="1" value={form.pieces_per_pack}
+                onChange={e => update('pieces_per_pack', e.target.value)} />
+            </Field>
+            <Field label={t('products.piecePrice', 'Piece selling price')}>
+              <Input className={numInput} inputMode="decimal" type="number" min="0" step="0.01" placeholder="auto" value={form.piece_price}
+                onChange={e => update('piece_price', e.target.value)} />
+            </Field>
+          </div>
+          {ppp > 0 && (
+            <div className="space-y-0.5 text-xs text-muted-foreground">
+              {cost > 0 && <p>{t('products.pieceBuying', 'Piece buying price')}: <strong className="text-foreground">{fmt(cost / ppp)}</strong></p>}
+              {!form.piece_price && price > 0 && <p>{t('products.pieceSellingAuto', 'Piece selling price (auto)')}: <strong className="text-foreground">{fmt(price / ppp)}</strong></p>}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {t('products.packNote', 'Leave pieces per pack empty or 0 to turn off piece sales.')}
+          </p>
+        </Section>
+
+        {/* More details (collapsed) */}
+        <Section title={t('products.moreDetails', 'More details')}
+          hint={t('products.moreHint', 'Barcode, supplier, expiry, low-stock alert, description')}
+          open={moreOpen} onToggle={() => setMoreOpen(o => !o)}>
+          <Field label={t('products.barcode')}>
+            <div className="flex gap-2">
+              <Input className={numInput} value={form.barcode} onChange={e => update('barcode', e.target.value)} inputMode="numeric" />
+              <Button type="button" variant="outline" className="h-11 shrink-0 gap-1" onClick={() => setScannerOpen(true)}>
+                <ScanLine size={18} /> {t('products.scan', 'Scan')}
+              </Button>
+            </div>
+          </Field>
+          <Field label={t('products.supplier', 'Supplier')}>
+            <Select value={form.supplier_id} onValueChange={v => update('supplier_id', v)}>
+              <SelectTrigger className="h-11 text-base"><SelectValue placeholder={t('products.supplierOptional', 'Optional')} /></SelectTrigger>
+              <SelectContent>{suppliers.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t('products.expiry')}>
+              <Input className={numInput} type="date" value={form.expiry_date} onChange={e => update('expiry_date', e.target.value)} />
+            </Field>
+            <Field label={t('products.lowStockAlert', 'Low stock alert')}>
+              <Input className={numInput} inputMode="numeric" type="number" min="0" value={form.low_stock_threshold}
+                onChange={e => update('low_stock_threshold', e.target.value)} />
+            </Field>
+          </div>
+          <Field label={t('common.description')}>
+            <Input className={numInput} value={form.description} onChange={e => update('description', e.target.value)} />
+          </Field>
+        </Section>
+
+        {/* Delete (edit only) */}
+        {product && onDelete && (
+          <Button type="button" variant="destructive" className="h-11 w-full gap-2" onClick={onDelete}>
+            <Trash2 size={16} /> {t('products.deleteProduct', 'Delete product')}
+          </Button>
+        )}
       </div>
-      <div className="flex gap-2 pt-2">
-        {onCancel && <Button type="button" variant="outline" onClick={onCancel} className="flex-1">Cancel</Button>}
-        <Button type="submit" className="flex-1 gradient-primary border-0" disabled={isPending}>
-          {isPending ? 'Saving...' : product ? 'Update' : 'Add Product'}
+
+      {/* Sticky footer */}
+      <div className="flex shrink-0 gap-2 border-t border-border bg-background px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        {onCancel && <Button type="button" variant="outline" onClick={onCancel} className="h-11 flex-1">{t('common.cancel')}</Button>}
+        <Button type="submit" className="h-11 flex-1 gradient-primary border-0" disabled={isPending}>
+          {isPending ? t('common.saving', 'Saving...') : product ? t('common.update', 'Update') : t('products.addProduct', 'Add product')}
         </Button>
       </div>
+
+      <BarcodeScanner open={scannerOpen} onClose={() => setScannerOpen(false)}
+        onScan={(code) => { update('barcode', code); setScannerOpen(false); }} />
     </form>
+  );
+}
+
+function StockBadge({ product }: { product: any }) {
+  const { t } = useTranslation();
+  const qty = Number.isInteger(product.quantity) ? product.quantity : Number(product.quantity).toFixed(2);
+  const out = product.quantity < 1;
+  const low = !out && product.quantity <= product.low_stock_threshold;
+  return (
+    <span className={cn(
+      'shrink-0 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold',
+      out ? 'bg-destructive/15 text-destructive' : low ? 'bg-warning/20 text-warning' : 'bg-muted text-muted-foreground',
+    )}>
+      {out ? t('products.outOfStock', 'Out of stock') : `${qty} ${product.unit || 'pcs'}${low ? ` · ${t('products.low', 'Low')}` : ''}`}
+    </span>
+  );
+}
+
+function ProductCard({ product, onEdit, onDelete }: { product: any; onEdit: () => void; onDelete: () => void }) {
+  const { t } = useTranslation();
+  const hasPack = product.pieces_per_pack > 0;
+  const piecePrice = product.piece_price > 0 ? product.piece_price : (hasPack ? product.price / product.pieces_per_pack : 0);
+  return (
+    <div role="button" tabIndex={0} onClick={onEdit}
+      onKeyDown={e => { if (e.key === 'Enter') onEdit(); }}
+      className="rounded-xl border border-border bg-card p-3 shadow-sm active:bg-muted/50">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-semibold text-card-foreground">{product.name}</p>
+          <p className="truncate text-xs text-muted-foreground">{product.category || '—'}</p>
+        </div>
+        <StockBadge product={product} />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="-me-1 h-8 w-8 shrink-0" onClick={e => e.stopPropagation()}
+              aria-label={t('common.actions')}>
+              <MoreVertical size={18} />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" onClick={e => e.stopPropagation()}>
+            <DropdownMenuItem onClick={onEdit}><Pencil size={14} className="me-2" /> {t('common.edit', 'Edit')}</DropdownMenuItem>
+            <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
+              <Trash2 size={14} className="me-2" /> {t('common.delete', 'Delete')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <div className="mt-3 grid grid-cols-3 items-end gap-2">
+        <div>
+          <p className="text-[11px] text-muted-foreground">{t('products.sellingPriceLabel', 'Selling price')}</p>
+          <p className="text-xl font-bold leading-tight text-success">{fmt(product.price)}</p>
+        </div>
+        <div>
+          <p className="text-[11px] text-muted-foreground">{t('products.buyingPrice', 'Buying price')}</p>
+          <p className="text-sm font-medium text-card-foreground">{fmt(product.cost_price)}</p>
+        </div>
+        <div>
+          <p className="text-[11px] text-muted-foreground">{t('products.profit', 'Profit')}</p>
+          <p className={cn('text-sm font-medium', product.price - product.cost_price >= 0 ? 'text-success' : 'text-destructive')}>
+            {fmt(product.price - product.cost_price)}
+          </p>
+        </div>
+      </div>
+      {(product.pack_name || hasPack) && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {product.pack_name || t('products.pack', 'Pack')}{hasPack && ` × ${product.pieces_per_pack} · ${t('products.piece', 'piece')} ${fmt(piecePrice)}`}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -143,10 +356,14 @@ export default function Products() {
   const addProduct = useAddProduct();
   const updateProduct = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
+  const isMobile = useIsMobile();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [sheetProductId, setSheetProductId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
   const [newProduct, setNewProduct] = useState({
     name: '', price: '', cost_price: '', quantity: '', category: '',
     barcode: '', expiry_date: '', low_stock_threshold: '5', supplier_id: '', description: '',
@@ -202,9 +419,20 @@ export default function Products() {
 
   const filtered = (products || []).filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || (p.barcode || '').includes(search);
-    const matchesCategory = categoryFilter === 'all' || p.category === categoryFilter;
+    const matchesCategory =
+      categoryFilter === 'all' ? true
+      : categoryFilter === '__low' ? (p.quantity >= 1 && p.quantity <= p.low_stock_threshold)
+      : categoryFilter === '__out' ? p.quantity < 1
+      : p.category === categoryFilter;
     return matchesSearch && matchesCategory;
   });
+
+  const sheetProduct = sheetProductId ? (products || []).find(p => p.id === sheetProductId) : undefined;
+  const closeSheet = () => { setSheetOpen(false); setSheetProductId(null); };
+  const openAddSheet = () => { setSheetProductId(null); setSheetOpen(true); };
+  const openEditSheet = (id: string) => { setSheetProductId(id); setSheetOpen(true); };
+  const handleAddClick = () => { if (isMobile) openAddSheet(); else setIsAdding(true); };
+  const handleEditClick = (id: string) => { if (isMobile) openEditSheet(id); else setEditingId(id); };
 
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
@@ -256,11 +484,31 @@ export default function Products() {
     } catch (err: any) { toast.error(err.message); }
   };
 
+  const handleSheetSubmit = async (data: any) => {
+    try {
+      if (sheetProductId) {
+        await updateProduct.mutateAsync({ id: sheetProductId, ...data });
+        toast.success(t('products.updated'));
+      } else {
+        await addProduct.mutateAsync({ ...data, image_url: null });
+        toast.success(t('products.added'));
+      }
+      closeSheet();
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    setDeleteTarget(null);
+    await handleDelete(id);
+  };
+
   const handleDelete = async (id: string) => {
-    if (!confirm(t('products.deleteConfirm'))) return;
     try {
       await deleteProduct.mutateAsync(id);
       toast.success(t('products.deleted'));
+      if (sheetProductId === id) closeSheet();
     } catch (err: any) {
       if (err.message?.includes('foreign key constraint') || err.message?.includes('sale_items')) {
         toast.error(t('products.cantDelete'));
@@ -285,71 +533,125 @@ export default function Products() {
     }
   };
 
+  const handleExportExcel = () => {
+    const rows = (products || []).map(p => ({
+      [t('common.name')]: p.name,
+      [t('common.category')]: p.category || '',
+      [t('products.sellingPrice')]: p.price,
+      [t('products.costPrice')]: p.cost_price,
+      [t('common.quantity')]: p.quantity,
+      Unit: p.unit || 'pcs',
+      [t('products.lowStockAt')]: p.low_stock_threshold,
+      [t('products.barcode')]: p.barcode || '',
+      [t('products.expiry')]: p.expiry_date || '',
+      [t('nav.suppliers')]: p.suppliers?.name || '',
+      [t('common.description')]: p.description || '',
+    }));
+    exportToExcel(`${shopSettings?.shop_name || 'Shop'}_Products`, [{ name: t('products.title'), rows }]);
+    toast.success(t('common.excelDownloaded'));
+  };
+
   const updateNew = (field: string, value: string) => setNewProduct(prev => ({ ...prev, [field]: value }));
 
   return (
     <div className="space-y-4 pb-20 md:pb-0">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{t('products.title')}</h1>
           <p className="text-sm text-muted-foreground">{t('customers.total', { count: products?.length || 0 })}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <input ref={importRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
-          <Button variant="outline" className="gap-1" onClick={() => importRef.current?.click()}>
+          {/* Desktop actions */}
+          <Button variant="outline" className="hidden gap-1 md:inline-flex" onClick={() => importRef.current?.click()}>
             <Upload size={16} /> Import
           </Button>
-          <Button variant="outline" className="gap-1" onClick={() => {
-            const rows = (products || []).map(p => ({
-              [t('common.name')]: p.name,
-              [t('common.category')]: p.category || '',
-              [t('products.sellingPrice')]: p.price,
-              [t('products.costPrice')]: p.cost_price,
-              [t('common.quantity')]: p.quantity,
-              Unit: p.unit || 'pcs',
-              [t('products.lowStockAt')]: p.low_stock_threshold,
-              [t('products.barcode')]: p.barcode || '',
-              [t('products.expiry')]: p.expiry_date || '',
-              [t('nav.suppliers')]: p.suppliers?.name || '',
-              [t('common.description')]: p.description || '',
-            }));
-            exportToExcel(`\${shopSettings?.shop_name || 'Shop'}_Products`, [{ name: t('products.title'), rows }]);
-            toast.success(t('common.excelDownloaded'));
-          }}>
+          <Button variant="outline" className="hidden gap-1 md:inline-flex" onClick={handleExportExcel}>
             <FileSpreadsheet size={16} /> {t('common.excel')}
           </Button>
-          <Button className="gradient-primary border-0 gap-1" onClick={() => setIsAdding(true)}>
+          <Button className="hidden gradient-primary border-0 gap-1 md:inline-flex" onClick={handleAddClick}>
             <Plus size={16} /> {t('common.add')}
           </Button>
+          {/* Mobile overflow menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" className="md:hidden" aria-label={t('common.more', 'More')}>
+                <MoreVertical size={18} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => importRef.current?.click()}><Upload size={14} className="me-2" /> Import</DropdownMenuItem>
+              <DropdownMenuItem onClick={handleExportExcel}><FileSpreadsheet size={14} className="me-2" /> {t('common.excel')}</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            ref={searchRef}
-            placeholder={t('products.searchPlaceholder')}
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            onKeyDown={handleSearchKeyDown}
-            className="ps-9"
-          />
+      {/* Pinned search + filters */}
+      <div className="sticky top-[52px] z-30 -mx-3 space-y-2 bg-background/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4 md:static md:mx-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              ref={searchRef}
+              placeholder={t('products.searchPlaceholder')}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              className="ps-9"
+            />
+          </div>
+          {/* Desktop dropdown */}
+          <div className="hidden md:block">
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger ref={filterRef} className="w-40 shrink-0"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('sales.allCategories')}</SelectItem>
+                <SelectItem value="__low">{t('products.lowStock', 'Low stock')}</SelectItem>
+                <SelectItem value="__out">{t('products.outOfStock', 'Out of stock')}</SelectItem>
+                {categoryList.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-          <SelectTrigger ref={filterRef} className="w-32"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t('sales.allCategories')}</SelectItem>
-            {categoryList.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        {/* Mobile chips */}
+        <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 sm:-mx-4 sm:px-4 md:hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {[
+            { v: 'all', label: t('sales.allCategories', 'All') },
+            { v: '__low', label: t('products.lowStock', 'Low stock') },
+            { v: '__out', label: t('products.outOfStock', 'Out of stock') },
+            ...categoryList.map(c => ({ v: c, label: c })),
+          ].map(chip => (
+            <button key={chip.v} type="button" onClick={() => setCategoryFilter(chip.v)}
+              className={cn('h-9 shrink-0 whitespace-nowrap rounded-full border px-4 text-sm font-medium transition-colors',
+                categoryFilter === chip.v
+                  ? chip.v === '__out' ? 'border-destructive bg-destructive text-destructive-foreground'
+                    : chip.v === '__low' ? 'border-warning bg-warning text-white'
+                    : 'border-primary bg-primary text-primary-foreground'
+                  : 'border-border bg-card text-foreground')}>
+              {chip.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {isLoading && <div className="space-y-3">{[1, 2, 3].map(i => <div key={i} className="h-20 bg-muted rounded-xl animate-pulse" />)}</div>}
 
+      {/* Mobile cards */}
       {!isLoading && (
-        <div className="rounded-lg border border-border overflow-hidden">
-          <Table ref={tableRef}>
+        <div className="space-y-2 md:hidden">
+          {filtered.map(product => (
+            <ProductCard key={product.id} product={product}
+              onEdit={() => openEditSheet(product.id)}
+              onDelete={() => setDeleteTarget(product)} />
+          ))}
+        </div>
+      )}
+
+      {/* Desktop table */}
+      {!isLoading && (
+        <div className="hidden md:block rounded-lg border border-border overflow-x-auto max-w-full">
+          <Table ref={tableRef} className="min-w-[900px]">
             <TableHeader>
               <TableRow className="border-b border-border">
                 <TableHead className="border-r border-border w-16">#</TableHead>
@@ -441,14 +743,16 @@ export default function Products() {
                   className="border-b border-border focus:bg-primary/5 focus:outline-none"
                 >
                   {editingId === product.id ? (
-                    <TableCell colSpan={12} className="p-4">
+                    <TableCell colSpan={12} className="p-0">
                       <ProductForm
+                        className="max-h-[70vh]"
                         product={product}
                         suppliers={suppliers || []}
                         categories={categoryList}
                         onSubmit={(data) => handleUpdate(product.id, data)}
                         isPending={updateProduct.isPending}
                         onCancel={() => setEditingId(null)}
+                        onDelete={() => setDeleteTarget(product)}
                         currency={currency}
                       />
                     </TableCell>
@@ -513,8 +817,8 @@ export default function Products() {
                       </TableCell>
                       <TableCell className="text-center">
                         <div className="flex justify-center gap-1">
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingId(product.id)}><Pencil size={14} /></Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => handleDelete(product.id)}><Trash2 size={14} /></Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleEditClick(product.id)}><Pencil size={14} /></Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteTarget(product)}><Trash2 size={14} /></Button>
                         </div>
                       </TableCell>
                     </>
@@ -531,6 +835,55 @@ export default function Products() {
           {search || categoryFilter !== 'all' ? 'No products found' : 'No products yet. Add your first one!'}
         </p>
       )}
+
+      {/* Floating add button (mobile) */}
+      {!sheetOpen && (
+        <Button onClick={openAddSheet} aria-label={t('common.add')}
+          className="fixed end-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 h-14 w-14 rounded-full gradient-primary border-0 p-0 shadow-lg md:hidden">
+          <Plus size={26} />
+        </Button>
+      )}
+
+      {/* Add / Edit bottom sheet (mobile) */}
+      <Sheet open={isMobile && sheetOpen} onOpenChange={(o) => { if (!o) closeSheet(); }}>
+        <SheetContent side="bottom" className="flex h-[92dvh] flex-col gap-0 rounded-t-2xl p-0">
+          <SheetHeader className="shrink-0 border-b border-border px-4 py-3 text-start">
+            <SheetTitle>{sheetProduct ? t('products.editProduct', 'Edit product') : t('products.addProduct', 'Add product')}</SheetTitle>
+            <SheetDescription className="sr-only">{t('products.formDescription', 'Product details')}</SheetDescription>
+          </SheetHeader>
+          {sheetOpen && (
+            <ProductForm
+              key={sheetProductId ?? 'new'}
+              product={sheetProduct}
+              suppliers={suppliers || []}
+              categories={categoryList}
+              onSubmit={handleSheetSubmit}
+              isPending={addProduct.isPending || updateProduct.isPending}
+              onCancel={closeSheet}
+              onDelete={sheetProduct ? () => setDeleteTarget(sheetProduct) : undefined}
+              currency={currency}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('products.deleteProduct', 'Delete product')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget ? `${deleteTarget.name} — ` : ''}{t('products.deleteConfirm')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {t('common.delete', 'Delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

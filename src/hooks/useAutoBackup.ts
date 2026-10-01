@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { getBaseCurrencyCode } from '@/hooks/useCurrencySettings';
 
 // electronEnv.isElectron is set by preload.cjs when running inside Electron
 const isElectron = !!(window as any).electronEnv?.isElectron;
@@ -66,7 +67,7 @@ export function useTriggerBackup() {
       toast.success(`✓ Backup created: ${data.filename}`, {
         description: `${data.invoiceCount} invoices, ${data.itemCount} items, Total: ${data.totalAmount.toLocaleString(
           'en-KE',
-          { style: 'currency', currency: 'KES' }
+          { style: 'currency', currency: getBaseCurrencyCode() }
         )}`,
         duration: 5000,
       });

@@ -13,10 +13,7 @@ import { FileText, Eye, Printer, Calendar, TrendingUp, Banknote, CreditCard, His
 import { format, isSameDay } from 'date-fns';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
-
-function formatKES(amount: number) {
-  return `KES ${amount.toLocaleString()}`;
-}
+import { useMoney } from '@/hooks/useCurrencySettings';
 
 // Each sale = its own invoice. Generate a short readable invoice number.
 function buildInvoiceNumber(sale: any, index: number, total: number) {
@@ -28,6 +25,7 @@ function buildInvoiceNumber(sale: any, index: number, total: number) {
 }
 
 export default function Invoices() {
+  const { fmt: money } = useMoney();
   const { data: sales } = useSales();
   const { data: shop } = useShopSettings();
   const { data: customers } = useCustomers();
@@ -182,7 +180,7 @@ export default function Invoices() {
     const shopName = shop?.shop_name || 'DeynPro';
     const invNum = buildInvoiceNumber(inv, 0, 1);
     const itemLines = (inv.sale_items || [])
-      .map((i: any) => `  • ${i.products?.name || 'Item'} x${i.quantity} = KES ${i.subtotal.toLocaleString()}`)
+      .map((i: any) => `  • ${i.products?.name || 'Item'} x${i.quantity} = ${money(i.subtotal)}`)
       .join('\n');
 
     const message =
@@ -190,7 +188,7 @@ export default function Invoices() {
       `Invoice #: ${invNum}\n` +
       `Date: ${format(new Date(inv.date), 'dd MMM yyyy')}\n\n` +
       `*Items:*\n${itemLines}\n\n` +
-      `*Total: KES ${inv.total_amount.toLocaleString()}*\n\n` +
+      `*Total: ${money(inv.total_amount)}*\n\n` +
       `Payment: ${inv.payment_method?.toUpperCase() || 'CASH'}\n\n` +
       `Thank you for your business! 🙏`;
 
@@ -200,12 +198,12 @@ export default function Invoices() {
   } 
   return(
     <div className="space-y-4 pb-20 md:pb-0">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Invoices</h1>
         <p className="text-sm text-muted-foreground">Each sale gets its own invoice</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <input ref={importRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImportExcel} />
           <Button variant="outline" className="gap-1" onClick={() => importRef.current?.click()}>
             <Upload size={16} /> Import
@@ -232,7 +230,7 @@ export default function Invoices() {
               <Calendar size={14} className="text-primary" />
             </div>
             <p className="text-lg font-bold text-card-foreground">{todayInvoices.length} invoices</p>
-            <p className="text-xs text-muted-foreground">{formatKES(todayRevenue)}</p>
+            <p className="text-xs text-muted-foreground">{money(todayRevenue)}</p>
           </CardContent>
         </Card>
         <Card className="shadow-card">
@@ -250,32 +248,32 @@ export default function Invoices() {
               <span className="text-xs text-muted-foreground">Grand Total (All Invoices)</span>
               <TrendingUp size={14} className="text-success" />
             </div>
-            <p className="text-xl font-bold text-primary">{formatKES(totalRevenue)}</p>
+            <p className="text-xl font-bold text-primary">{money(totalRevenue)}</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Payment Method Summary Cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3 [&>*]:min-w-0">
         <Card className="shadow-card">
           <CardContent className="p-3 text-center">
             <Banknote size={18} className="mx-auto text-success mb-1" />
             <p className="text-xs text-muted-foreground">Cash Sales</p>
-            <p className="text-sm font-bold text-card-foreground">{formatKES(cashTotal)}</p>
+            <p className="text-xs sm:text-sm font-bold text-card-foreground break-words">{money(cashTotal)}</p>
           </CardContent>
         </Card>
         <Card className="shadow-card">
           <CardContent className="p-3 text-center">
             <CreditCard size={18} className="mx-auto text-primary mb-1" />
             <p className="text-xs text-muted-foreground">M-Pesa</p>
-            <p className="text-sm font-bold text-card-foreground">{formatKES(mpesaTotal)}</p>
+            <p className="text-xs sm:text-sm font-bold text-card-foreground break-words">{money(mpesaTotal)}</p>
           </CardContent>
         </Card>
         <Card className="shadow-card">
           <CardContent className="p-3 text-center">
             <History size={18} className="mx-auto text-destructive mb-1" />
             <p className="text-xs text-muted-foreground">On Debt</p>
-            <p className="text-sm font-bold text-card-foreground">{formatKES(creditTotal)}</p>
+            <p className="text-xs sm:text-sm font-bold text-card-foreground break-words">{money(creditTotal)}</p>
           </CardContent>
         </Card>
       </div>
@@ -302,12 +300,48 @@ export default function Invoices() {
                   </CardTitle>
                   <div className="text-right">
                     <p className="text-xs text-muted-foreground">{groupInvs.length} invoice{groupInvs.length > 1 ? 's' : ''}</p>
-                    <p className="text-sm font-bold text-primary">{formatKES(groupTotal)}</p>
+                    <p className="text-sm font-bold text-primary">{money(groupTotal)}</p>
                   </div>
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="overflow-x-auto">
+                {/* Mobile: cards */}
+                <div className="md:hidden space-y-2">
+                  {groupInvs.map((inv: any, idx: number) => (
+                    <div key={inv.id + idx} className="border border-border rounded-lg p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {inv.customers?.name || <span className="text-muted-foreground">Walk-in</span>}
+                          </p>
+                          <p className="text-[11px] font-mono text-muted-foreground truncate">{inv.invoice_number}</p>
+                        </div>
+                        <p className="text-base font-bold shrink-0">{money(inv.total_amount)}</p>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <Badge variant="outline" className={paymentBadgeStyle(inv.payment_method)}>
+                          {paymentLabel(inv.payment_method)}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {inv.all_items?.length || 0} item{(inv.all_items?.length || 0) !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <Button size="sm" variant="outline" className="flex-1 h-10 gap-1.5 text-primary" onClick={() => setSelectedInvoice(inv)}>
+                          <Eye size={15} /> View
+                        </Button>
+                        {inv.customers?.phone && (
+                          <Button size="sm" variant="outline" className="flex-1 h-10 gap-1.5 text-green-700 border-green-600/40" onClick={() => handleWhatsApp(inv)}>
+                            <MessageCircle size={15} /> WhatsApp
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop: table */}
+                <div className="hidden md:block overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -337,7 +371,7 @@ export default function Invoices() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right font-semibold text-sm">
-                            {formatKES(inv.total_amount)}
+                            {money(inv.total_amount)}
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
@@ -417,8 +451,8 @@ export default function Invoices() {
                       <tr key={item.id || i} style={{ borderBottom: '1px solid hsl(var(--border))' }}>
                         <td style={{ padding: '8px 0', fontSize: 13 }}>{item.products?.name || 'Unknown'}</td>
                         <td style={{ textAlign: 'center', padding: '8px 0', fontSize: 13 }}>{item.quantity}</td>
-                        <td style={{ textAlign: 'right', padding: '8px 0', fontSize: 13 }}>{formatKES(item.unit_price)}</td>
-                        <td style={{ textAlign: 'right', padding: '8px 0', fontSize: 13, fontWeight: 600 }}>{formatKES(item.subtotal)}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 0', fontSize: 13 }}>{money(item.unit_price)}</td>
+                        <td style={{ textAlign: 'right', padding: '8px 0', fontSize: 13, fontWeight: 600 }}>{money(item.subtotal)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -428,7 +462,7 @@ export default function Invoices() {
 
                 <div className="flex justify-between items-center py-2">
                   <span className="font-bold text-base">Total</span>
-                  <span className="font-bold text-lg text-primary">{formatKES(selectedInvoice.total_amount)}</span>
+                  <span className="font-bold text-lg text-primary">{money(selectedInvoice.total_amount)}</span>
                 </div>
               </div>
 

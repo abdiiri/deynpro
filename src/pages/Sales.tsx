@@ -15,10 +15,8 @@ import { toast } from 'sonner';
 import { ReceiptModal } from '@/components/ReceiptModal';
 import { useShopSettings } from '@/hooks/useShopSettings';
 import { BarcodeScanner } from '@/components/BarcodeScanner';
-
-function formatKES(amount: number) {
-  return `KES ${amount.toLocaleString()}`;
-}
+import { useMoney } from '@/hooks/useCurrencySettings';
+import { useKeyboardBox } from '@/hooks/useVisualViewport';
 
 // ── Beep sound via Web Audio API (non-blocking, no file needed) ──────────────
 function playBeep() {
@@ -50,6 +48,7 @@ interface RecentProduct {
 }
 
 export default function Sales() {
+  const { fmt: money, code: currencyCode } = useMoney();
   const { t } = useTranslation();
   const { data: products } = useProducts();
   const { data: customers } = useCustomers();
@@ -81,11 +80,15 @@ export default function Sales() {
   const [scannerUrl, setScannerUrl] = useState('');
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const kb = useKeyboardBox(productModalOpen);
   const focusedRowRef = useRef<HTMLTableRowElement>(null);
 
   // ── Auto-focus search when modal opens ───────────────────────────────────
   useEffect(() => {
     if (productModalOpen) {
+      // Only auto-focus with a mouse/keyboard. On touch devices, focusing here would raise the
+      // on-screen keyboard immediately and cover the product list before the cashier has tapped.
+      if (!window.matchMedia('(pointer: fine)').matches) return;
       // Small delay to let the Dialog animation settle
       const t = setTimeout(() => searchInputRef.current?.focus(), 80);
       return () => clearTimeout(t);
@@ -330,7 +333,7 @@ export default function Sales() {
     if (cart.length === 0) { toast.error(t('sales.cartIsEmpty')); return; }
     const belowCost = cart.find(item => item.price < item.cost_price);
     if (belowCost) {
-      toast.error(t('sales.belowCost', { name: belowCost.name, cost: belowCost.cost_price.toLocaleString() }));
+      toast.error(t('sales.belowCost', { name: belowCost.name, cost: belowCost.cost_price.toLocaleString(), currency: currencyCode }));
       return;
     }
     if (paymentMethod === 'credit' && customerId === 'none') {
@@ -338,7 +341,7 @@ export default function Sales() {
       return;
     }
     if (paymentMethod === 'credit' && creditStatus.wouldExceed) {
-      const fmt = (n: number) => `KES ${n.toLocaleString()}`;
+      const fmt = (n: number) => money(n);
       toast.error(
         `Credit limit exceeded! Current balance: ${fmt(creditStatus.balance)}, ` +
         `limit: ${fmt(creditStatus.limit)}. Reduce the order or change payment method.`
@@ -368,7 +371,7 @@ export default function Sales() {
       const customer = customerId !== 'none'
         ? (customers || []).find((cu: any) => cu.id === customerId)
         : null;
-      // Award 1 loyalty point per KES 100 spent (cash or credit)
+      // Award 1 loyalty point per 100 (base currency) spent (cash or credit)
       if (customerId !== 'none') {
         const points = Math.floor(total / 100);
         if (points > 0) updateLoyalty.mutate({ id: customerId, delta: points });
@@ -407,7 +410,7 @@ export default function Sales() {
   };
 
   return (
-    <div className="space-y-4 pb-20 md:pb-0">
+    <div className="space-y-4 pb-20 md:pb-0 min-w-0">
       <div>
         <h1 className="text-2xl font-bold text-foreground">{t('sales.title')}</h1>
         <p className="text-sm text-muted-foreground">{t('sales.subtitle')}</p>
@@ -427,15 +430,15 @@ export default function Sales() {
 
       <div className="space-y-4">
         <div className="flex gap-2">
-          <Button className="flex-1 gap-2" variant="outline" onClick={() => setProductModalOpen(true)}>
+          <Button className="flex-1 min-w-0 gap-2" variant="outline" onClick={() => setProductModalOpen(true)}>
             <Package size={16} /> {t('sales.addProducts')}
           </Button>
-          <Button variant="outline" className="gap-2 px-4" onClick={() => setScannerOpen(true)}>
+          <Button variant="outline" className="gap-2 px-3 sm:px-4 shrink-0" onClick={() => setScannerOpen(true)}>
             <ScanLine size={16} /> Scan
           </Button>
           <Button
             variant="outline"
-            className="px-3"
+            className="px-3 shrink-0"
             title="Show QR code for mobile scanner"
             onClick={async () => {
               if ((window as any).electronMobileScanner) {
@@ -454,7 +457,76 @@ export default function Sales() {
             {cart.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-12">{t('sales.cartEmpty')}</p>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+              {/* Mobile cart: stacked cards (no horizontal scroll) */}
+              <div className="md:hidden divide-y divide-border">
+                {cart.map((item, index) => (
+                  <div key={item.product_id} className="p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-mono text-muted-foreground">#{String(index + 1).padStart(6, '0')}</p>
+                        <p className="font-medium text-sm break-words">{item.name}</p>
+                        {item.pieces_per_pack > 0 && (
+                          <p className="text-[11px] mt-0.5">
+                            {item.piece_mode ? (
+                              <span className="text-amber-600 font-medium">piece · 1/{item.pieces_per_pack}</span>
+                            ) : (
+                              <span className="text-blue-600 font-medium">{item.pack_name || 'pack'} · ×{item.pieces_per_pack}</span>
+                            )}
+                          </p>
+                        )}
+                      </div>
+                      <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0 text-destructive" onClick={() => removeFromCart(item.product_id)}>
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="min-w-0">
+                        <label className="text-[10px] text-muted-foreground block mb-0.5">Unit Price</label>
+                        <Input
+                          type="number"
+                          min={0}
+                          inputMode="decimal"
+                          className={`h-9 text-right text-sm [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield] ${item.price < item.cost_price ? 'border-destructive text-destructive' : ''}`}
+                          value={item.price}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            const product = (products || []).find(p => p.id === item.product_id);
+                            const costPrice = product?.cost_price || 0;
+                            if (val < costPrice) {
+                              toast.error(t('sales.priceCantBeBelowCost', { cost: costPrice.toLocaleString(), currency: currencyCode }));
+                            }
+                            setCart(prev => prev.map(c => c.product_id === item.product_id ? { ...c, price: val } : c));
+                          }}
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <label className="text-[10px] text-muted-foreground block mb-0.5">{t('common.quantity')}</label>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={item.available}
+                          inputMode="numeric"
+                          className="h-9 text-center text-sm [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none [-moz-appearance:textfield]"
+                          value={item.quantity}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value) || 1;
+                            if (val > item.available) { toast.error(t('sales.notEnoughStock')); return; }
+                            setCart(prev => prev.map(c => c.product_id === item.product_id ? { ...c, quantity: Math.max(1, val) } : c));
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">{t('common.total')}</span>
+                      <span className="font-semibold">{money(item.price * item.quantity)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Desktop / tablet cart: table */}
+              <div className="hidden md:block overflow-x-auto">
                 <Table className="border border-border">
                   <TableHeader>
                     <TableRow className="border-b border-border">
@@ -485,7 +557,7 @@ export default function Sales() {
                               const product = (products || []).find(p => p.id === item.product_id);
                               const costPrice = product?.cost_price || 0;
                               if (val < costPrice) {
-                                toast.error(t('sales.priceCantBeBelowCost', { cost: costPrice.toLocaleString() }));
+                                toast.error(t('sales.priceCantBeBelowCost', { cost: costPrice.toLocaleString(), currency: currencyCode }));
                               }
                               setCart(prev => prev.map(c => c.product_id === item.product_id ? { ...c, price: val } : c));
                             }}
@@ -519,7 +591,7 @@ export default function Sales() {
                             </div>
                           ) : <span className="text-muted-foreground text-xs">—</span>}
                         </TableCell>
-                        <TableCell className="text-right font-semibold text-sm border-r border-border">{formatKES(item.price * item.quantity)}</TableCell>
+                        <TableCell className="text-right font-semibold text-sm border-r border-border">{money(item.price * item.quantity)}</TableCell>
                         <TableCell>
                           <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => removeFromCart(item.product_id)}>
                             <Trash2 size={12} />
@@ -530,6 +602,7 @@ export default function Sales() {
                   </TableBody>
                 </Table>
               </div>
+              </>
             )}
           </CardContent>
         </Card>
@@ -540,7 +613,7 @@ export default function Sales() {
             <CardContent className="p-4 space-y-3">
               <div className="flex justify-between items-center">
                 <span className="font-semibold text-card-foreground">{t('sales.totalItems', { count: cart.length })}</span>
-                <span className="text-xl font-bold text-primary">{formatKES(total)}</span>
+                <span className="text-xl font-bold text-primary">{money(total)}</span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -584,7 +657,7 @@ export default function Sales() {
                           {creditStatus.wouldExceed ? 'Credit limit exceeded' : 'Credit available'}
                         </p>
                         <p className="opacity-80">
-                          Balance: KES {creditStatus.balance.toLocaleString()} / Limit: KES {creditStatus.limit.toLocaleString()}
+                          Balance: {money(creditStatus.balance)} / Limit: {money(creditStatus.limit)}
                         </p>
                       </div>
                     </div>
@@ -594,7 +667,7 @@ export default function Sales() {
 
               <Button className="w-full gradient-primary border-0" onClick={handleCheckout}
                 disabled={createSale.isPending || (paymentMethod === 'credit' && creditStatus.wouldExceed)}>
-                {createSale.isPending ? t('sales.processing') : `${t('sales.checkout')} — ${formatKES(total)}`}
+                {createSale.isPending ? t('sales.processing') : `${t('sales.checkout')} — ${money(total)}`}
               </Button>
             </CardContent>
           </Card>
@@ -603,7 +676,11 @@ export default function Sales() {
 
       {/* Product Picker Modal */}
       <Dialog open={productModalOpen} onOpenChange={setProductModalOpen}>
-        <DialogContent className="max-w-4xl w-[95vw] h-[85vh] flex flex-col gap-3 p-4">
+        <DialogContent
+          className="max-w-4xl w-[calc(100vw-1rem)] sm:w-[95vw] h-[90dvh] sm:h-[85dvh] flex flex-col gap-3 p-3 sm:p-4 overflow-hidden"
+          // With the keyboard open, fit the picker into the space above it (search stays at the top, list scrolls).
+          style={kb ? { top: kb.offsetTop + 8, height: kb.height - 16, transform: 'translateX(-50%)' } : undefined}
+        >
           <DialogHeader className="pb-0">
             <DialogTitle className="flex items-center gap-2">
               <Package size={18} /> {t('sales.selectProducts')}
@@ -629,7 +706,7 @@ export default function Sales() {
               />
             </div>
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-[140px] h-9 text-sm">
+              <SelectTrigger className="w-full sm:w-[140px] h-9 text-sm">
                 <SelectValue placeholder={t('common.category')} />
               </SelectTrigger>
               <SelectContent>
@@ -664,7 +741,7 @@ export default function Sales() {
           )}
 
           {/* ── Keyboard hint bar ────────────────────────────────────────── */}
-          <div className="flex items-center gap-3 text-[10px] text-muted-foreground flex-shrink-0 flex-wrap">
+          <div className="hidden md:flex items-center gap-3 text-[10px] text-muted-foreground flex-shrink-0 flex-wrap">
             {[
               ['↑↓', 'Navigate'],
               ['↵', 'Add to cart'],
@@ -678,8 +755,80 @@ export default function Sales() {
             ))}
           </div>
 
-          {/* ── Product Table ─────────────────────────────────────────────── */}
-          <div className="flex-1 overflow-auto rounded-xl border border-border bg-card shadow-sm min-h-0">
+          {/* ── Product list (mobile) ─────────────────────────────────────── */}
+          <div className="md:hidden flex-1 overflow-y-auto overflow-x-hidden rounded-xl border border-border bg-card shadow-sm min-h-0 divide-y divide-border">
+            {filteredProducts.map((product) => {
+              const inCart = cart.find(c => c.product_id === product.id);
+              const inCartPiece = cart.find(c => c.product_id === `${product.id}__piece`);
+              const hasPack = product.pieces_per_pack > 0;
+              const effectivePieceSP =
+                product.piece_price > 0
+                  ? product.piece_price
+                  : hasPack
+                  ? product.price / product.pieces_per_pack
+                  : null;
+              const lowStock = product.quantity <= (product.low_stock_threshold ?? 5);
+              return (
+                <div key={product.id} className="p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm leading-tight break-words">{product.name}</p>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {lowStock && product.quantity > 0 && (
+                          <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-1.5 py-0.5">Low stock</span>
+                        )}
+                        {inCart && (
+                          <span className="text-[10px] bg-primary/10 text-primary border border-primary/20 rounded-full px-1.5 py-0.5">✓ {inCart.quantity} in cart</span>
+                        )}
+                        {inCartPiece && (
+                          <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-1.5 py-0.5">✓ {inCartPiece.quantity} pcs</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-bold text-sm text-primary">{money(product.price)}</p>
+                      {effectivePieceSP != null && (
+                        <p className="text-[11px] font-semibold text-amber-600">{money(effectivePieceSP)} / pc</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-xs ${product.quantity < 1 ? 'text-destructive' : lowStock ? 'text-amber-500' : 'text-muted-foreground'}`}>
+                      Stock: {Number.isInteger(product.quantity) ? product.quantity : product.quantity.toFixed(2)}
+                      {hasPack && product.quantity > 0 && ` (${Math.floor(product.quantity * product.pieces_per_pack)} pcs)`}
+                    </span>
+                    <div className="flex gap-1.5 shrink-0">
+                      <button
+                        onClick={() => addToCart(product)}
+                        className="inline-flex items-center justify-center gap-1 text-xs font-semibold text-white bg-primary active:scale-95 rounded-md px-3 py-1.5 transition-all"
+                      >
+                        <Plus size={12} />
+                        {hasPack ? product.pack_name || 'Pack' : 'Add'}
+                      </button>
+                      {hasPack && effectivePieceSP != null && (
+                        <button
+                          onClick={() => addToCart(product, true)}
+                          className="inline-flex items-center justify-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 active:scale-95 rounded-md px-3 py-1.5 transition-all"
+                        >
+                          <Plus size={12} />
+                          Piece
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {filteredProducts.length === 0 && (
+              <div className="py-12 flex flex-col items-center gap-2 text-muted-foreground">
+                <Package size={28} />
+                <p className="text-sm">{t('sales.noProductsFound')}</p>
+              </div>
+            )}
+          </div>
+
+          {/* ── Product Table (tablet / desktop) ──────────────────────────── */}
+          <div className="hidden md:block flex-1 overflow-auto rounded-xl border border-border bg-card shadow-sm min-h-0">
             <Table className="w-full text-sm border-separate border-spacing-0">
               <TableHeader className="sticky top-0 bg-background/95 backdrop-blur-md z-10">
                 <TableRow className="border-b-2 border-border hover:bg-transparent">
@@ -748,7 +897,7 @@ export default function Sales() {
 
                       {/* Pack S.P */}
                       <TableCell className="py-2.5 px-3 border-r border-border text-right font-bold text-primary" onClick={() => addToCart(product)}>
-                        {formatKES(product.price)}
+                        {money(product.price)}
                       </TableCell>
 
                       {/* Ratio */}
@@ -766,14 +915,14 @@ export default function Sales() {
                       {/* Piece S.P */}
                       <TableCell className="py-2.5 px-3 border-r border-border text-right" onClick={() => addToCart(product)}>
                         {effectivePieceSP != null
-                          ? <span className="font-semibold text-amber-600">{formatKES(effectivePieceSP)}</span>
+                          ? <span className="font-semibold text-amber-600">{money(effectivePieceSP)}</span>
                           : <span className="text-muted-foreground text-xs">—</span>}
                       </TableCell>
 
                       {/* Profit */}
                       <TableCell className="py-2.5 px-3 border-r border-border text-right" onClick={() => addToCart(product)}>
                         <span className={`font-semibold text-sm ${packProfit >= 0 ? 'text-emerald-600' : 'text-destructive'}`}>
-                          {formatKES(packProfit)}
+                          {money(packProfit)}
                         </span>
                       </TableCell>
 
@@ -847,7 +996,7 @@ export default function Sales() {
           onClick={() => setQrOpen(false)}
         >
           <div
-            className="relative bg-white rounded-3xl p-6 flex flex-col items-center gap-4 shadow-2xl mx-4 max-w-xs w-full"
+            className="relative bg-white rounded-3xl p-5 sm:p-6 flex flex-col items-center gap-4 shadow-2xl mx-4 max-w-xs w-full max-h-[90vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}
           >
             <button
@@ -868,10 +1017,10 @@ export default function Sales() {
                 alt="QR code"
                 width={240}
                 height={240}
-                className="rounded-xl"
+                className="rounded-xl max-w-full h-auto"
               />
             ) : (
-              <div className="w-[240px] h-[240px] rounded-xl bg-gray-100 flex items-center justify-center text-xs text-gray-400">
+              <div className="w-full max-w-[240px] aspect-square rounded-xl bg-gray-100 flex items-center justify-center text-xs text-gray-400">
                 Only available in desktop app
               </div>
             )}

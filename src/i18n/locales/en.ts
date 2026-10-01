@@ -26,6 +26,7 @@ export default {
     endOfDay: 'End of Day',
     settings: 'Settings',
     reorderList: 'Reorder List',
+    more: 'More',
   },
   common: {
     add: 'Add',
@@ -139,7 +140,7 @@ export default {
     paymentRecorded: 'Payment recorded',
     txUpdated: 'Transaction updated',
     invalidAmount: 'Enter a valid amount',
-    amountKes: 'Amount (KES)',
+    amountKes: 'Amount ({{currency}})',
     descOptional: 'Description (optional)',
     dueDateOptional: 'Payment due date (optional)',
     dueDate: 'Due date',
@@ -189,8 +190,8 @@ export default {
     notEnoughStock: 'Not enough stock',
     outOfStock: 'Out of stock',
     cartIsEmpty: 'Cart is empty',
-    belowCost: '"{{name}}" is priced below cost (KES {{cost}}). Increase the price to proceed.',
-    priceCantBeBelowCost: "Price can't be below cost (KES {{cost}})",
+    belowCost: '"{{name}}" is priced below cost ({{currency}} {{cost}}). Increase the price to proceed.',
+    priceCantBeBelowCost: "Price can't be below cost ({{currency}} {{cost}})",
     creditRequiresCustomer: 'Debt/credit requires a registered customer',
     selectCustomerFirst: 'Select a registered customer first to use credit/debt',
     paymentChangedToCash: 'Payment changed to Cash — debt requires a registered customer',
@@ -206,7 +207,7 @@ export default {
   },
   expenses: {
     title: 'Expenses',
-    totalLabel: 'Total: KES {{amount}}',
+    totalLabel: 'Total: {{currency}} {{amount}}',
     addExpense: 'Add Expense',
     titleField: 'Title *',
     amountField: 'Amount *',
@@ -290,9 +291,9 @@ export default {
     subtotal: 'Subtotal',
   },
   whatsapp: {
-    debtReminder: 'Hello {{name}},\n\nThis is a reminder that you have a debt of KES {{amount}}{{dueClause}}.\n\nPlease pay as soon as possible.\n\nThank you! 🙏',
+    debtReminder: 'Hello {{name}},\n\nThis is a reminder that you have a debt of {{currency}} {{amount}}{{dueClause}}.\n\nPlease pay as soon as possible.\n\nThank you! 🙏',
     dueClause: ' which was due on {{date}}',
-    debtSummary: 'Hello {{name}}, you have a total debt of KES {{amount}}. Please pay soon. Thank you!',
+    debtSummary: 'Hello {{name}}, you have a total debt of {{currency}} {{amount}}. Please pay soon. Thank you!',
     thanks: 'Hello {{name}}! Thank you for your business. 🙏',
   },
   arAging: {

@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 export interface CurrencySettings {
@@ -32,8 +33,16 @@ export function useCurrencySettings() {
   return useQuery({
     queryKey: ['currency_settings'],
     queryFn: loadSettings,
+    // Settings live in localStorage, so they're available synchronously. Seeding the
+    // query avoids a first render that shows the default currency before the real one.
+    initialData: loadSettings,
     staleTime: Infinity,
   });
+}
+
+/** Base currency code for non-React code (printers, toasts). Components should use useMoney(). */
+export function getBaseCurrencyCode(): string {
+  return loadSettings().base_currency || DEFAULT.base_currency;
 }
 
 export function useSaveCurrencySettings() {
@@ -64,10 +73,32 @@ export const SUPPORTED_CURRENCIES = [
   { code: 'INR', symbol: '₹',   name: 'Indian Rupee' },
 ];
 
-export function formatCurrency(amount: number, code: string): string {
+export interface MoneyFormatOptions {
+  minimumFractionDigits?: number;
+  maximumFractionDigits?: number;
+}
+
+export function formatCurrency(amount: number, code: string, opts: MoneyFormatOptions = {}): string {
   const cur = SUPPORTED_CURRENCIES.find(c => c.code === code);
   const symbol = cur?.symbol || code;
-  return `${symbol} ${amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  return `${symbol} ${amount.toLocaleString(undefined, {
+    minimumFractionDigits: opts.minimumFractionDigits ?? 0,
+    maximumFractionDigits: opts.maximumFractionDigits ?? 2,
+  })}`;
+}
+
+/**
+ * Formats amounts in the shop's base currency.
+ *   const { fmt, code } = useMoney();
+ *   fmt(1500)  ->  "KES 1,500"   (or "TSh"/"$"/... depending on Settings)
+ */
+export function useMoney() {
+  const { data } = useCurrencySettings();
+  const code = data?.base_currency || DEFAULT.base_currency;
+  return useMemo(
+    () => ({ code, fmt: (amount: number, opts?: MoneyFormatOptions) => formatCurrency(amount, code, opts) }),
+    [code],
+  );
 }
 
 /** Convert a purchase-currency cost to base (KES) */

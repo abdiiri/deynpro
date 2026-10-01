@@ -12,14 +12,12 @@ import { TrendingUp, TrendingDown, DollarSign, ShoppingCart, Package, Receipt, D
 import { format, subDays, startOfDay, isAfter } from 'date-fns';
 import { exportToExcel } from '@/lib/excelExport';
 import { toast } from 'sonner';
-
-function formatKES(amount: number) {
-  return `KES ${amount.toLocaleString()}`;
-}
+import { useMoney } from '@/hooks/useCurrencySettings';
 
 const COLORS = ['hsl(160, 60%, 38%)', 'hsl(210, 80%, 55%)', 'hsl(45, 90%, 50%)', 'hsl(0, 70%, 55%)'];
 
 export default function Reports() {
+  const { fmt: money, code: currencyCode } = useMoney();
   const { data: shopSettings } = useShopSettings();
   const { data: sales } = useSales();
   const { data: expenses } = useExpenses();
@@ -93,9 +91,9 @@ export default function Reports() {
           <h1 className="text-2xl font-bold text-foreground">Reports</h1>
           <p className="text-sm text-muted-foreground">Business performance overview</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <Select value={period} onValueChange={setPeriod}>
-            <SelectTrigger className="w-[140px]">
+            <SelectTrigger className="flex-1 sm:flex-none sm:w-[140px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -108,16 +106,17 @@ export default function Reports() {
           <Button
             variant="outline"
             size="sm"
+            className="shrink-0 h-10 sm:h-9"
             onClick={() => {
               try {
-                exportToExcel(`\${shopSettings?.shop_name || 'Shop'}_Report`, [
+                exportToExcel(`${shopSettings?.shop_name || 'Shop'}_Report`, [
                   {
                     name: 'Summary',
                     rows: [
                       { Metric: 'Period (days)', Value: period },
-                      { Metric: 'Total Revenue (KES)', Value: totalRevenue },
-                      { Metric: 'Total Expenses (KES)', Value: totalExpenseAmt },
-                      { Metric: 'Profit/Loss (KES)', Value: profit },
+                      { Metric: `Total Revenue (${currencyCode})`, Value: totalRevenue },
+                      { Metric: `Total Expenses (${currencyCode})`, Value: totalExpenseAmt },
+                      { Metric: `Profit/Loss (${currencyCode})`, Value: profit },
                       { Metric: 'Sales Count', Value: filteredSales.length },
                       { Metric: 'Expenses Count', Value: filteredExpenses.length },
                       { Metric: 'Products in Inventory', Value: products?.length || 0 },
@@ -129,7 +128,7 @@ export default function Reports() {
                       Date: format(new Date(s.date), 'yyyy-MM-dd HH:mm'),
                       Customer: s.customers?.name || 'Walk-in',
                       'Payment Method': s.payment_method,
-                      'Total (KES)': s.total_amount,
+                      [`Total (${currencyCode})`]: s.total_amount,
                       Items: (s.sale_items || []).map((i: any) => `${i.products?.name} x${i.quantity}`).join(', '),
                     })),
                   },
@@ -139,7 +138,7 @@ export default function Reports() {
                       Date: format(new Date(e.date), 'yyyy-MM-dd'),
                       Title: e.title,
                       Category: e.category,
-                      'Amount (KES)': e.amount,
+                      [`Amount (${currencyCode})`]: e.amount,
                       Description: e.description || '',
                     })),
                   },
@@ -148,8 +147,8 @@ export default function Reports() {
                     rows: (products || []).map((p: any) => ({
                       Name: p.name,
                       Category: p.category || '',
-                      'Selling Price (KES)': p.price,
-                      'Cost Price (KES)': p.cost_price,
+                      [`Selling Price (${currencyCode})`]: p.price,
+                      [`Cost Price (${currencyCode})`]: p.cost_price,
                       Quantity: p.quantity,
                       'Low Stock Threshold': p.low_stock_threshold,
                       'Expiry Date': p.expiry_date || '',
@@ -162,7 +161,7 @@ export default function Reports() {
                       Rank: i + 1,
                       Product: p.name,
                       'Qty Sold': p.qty,
-                      'Revenue (KES)': p.revenue,
+                      [`Revenue (${currencyCode})`]: p.revenue,
                     })),
                   },
                 ]);
@@ -185,7 +184,7 @@ export default function Reports() {
               <span className="text-xs text-muted-foreground">Revenue</span>
               <ShoppingCart size={14} className="text-primary" />
             </div>
-            <p className="text-lg font-bold text-card-foreground">{formatKES(totalRevenue)}</p>
+            <p className="text-lg font-bold text-card-foreground">{money(totalRevenue)}</p>
             <p className="text-xs text-muted-foreground">{filteredSales.length} sales</p>
           </CardContent>
         </Card>
@@ -195,7 +194,7 @@ export default function Reports() {
               <span className="text-xs text-muted-foreground">Expenses</span>
               <Receipt size={14} className="text-destructive" />
             </div>
-            <p className="text-lg font-bold text-card-foreground">{formatKES(totalExpenseAmt)}</p>
+            <p className="text-lg font-bold text-card-foreground">{money(totalExpenseAmt)}</p>
             <p className="text-xs text-muted-foreground">{filteredExpenses.length} entries</p>
           </CardContent>
         </Card>
@@ -205,7 +204,7 @@ export default function Reports() {
               <span className="text-xs text-muted-foreground">Profit/Loss</span>
               {profit >= 0 ? <TrendingUp size={14} className="text-success" /> : <TrendingDown size={14} className="text-destructive" />}
             </div>
-            <p className={`text-lg font-bold ${profit >= 0 ? 'text-success' : 'text-destructive'}`}>{formatKES(profit)}</p>
+            <p className={`text-lg font-bold ${profit >= 0 ? 'text-success' : 'text-destructive'}`}>{money(profit)}</p>
           </CardContent>
         </Card>
         <Card className="shadow-card">
@@ -231,7 +230,7 @@ export default function Reports() {
               <BarChart data={dailyRevenue}>
                 <XAxis dataKey="day" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip formatter={(value: number) => formatKES(value)} />
+                <Tooltip formatter={(value: number) => money(value)} />
                 <Bar dataKey="amount" fill="hsl(160, 60%, 38%)" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -254,7 +253,7 @@ export default function Reports() {
                       <Cell key={i} fill={COLORS[i % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value: number) => formatKES(value)} />
+                  <Tooltip formatter={(value: number) => money(value)} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="mt-2 space-y-1">
@@ -264,7 +263,7 @@ export default function Reports() {
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
                       <span className="text-card-foreground">{item.name}</span>
                     </div>
-                    <span className="font-medium text-card-foreground">{formatKES(item.value)}</span>
+                    <span className="font-medium text-card-foreground">{money(item.value)}</span>
                   </div>
                 ))}
               </div>
@@ -286,7 +285,7 @@ export default function Reports() {
                       <Cell key={i} fill={COLORS[i % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value: number) => formatKES(value)} />
+                  <Tooltip formatter={(value: number) => money(value)} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="mt-2 space-y-1">
@@ -296,7 +295,7 @@ export default function Reports() {
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
                       <span className="text-card-foreground capitalize">{item.name}</span>
                     </div>
-                    <span className="font-medium text-card-foreground">{formatKES(item.value)}</span>
+                    <span className="font-medium text-card-foreground">{money(item.value)}</span>
                   </div>
                 ))}
               </div>
@@ -312,6 +311,22 @@ export default function Reports() {
             <CardTitle className="text-sm font-medium text-muted-foreground">Top Selling Products</CardTitle>
           </CardHeader>
           <CardContent>
+            {/* Mobile: cards */}
+            <div className="md:hidden divide-y divide-border">
+              {topProducts.map((p, i) => (
+                <div key={p.name} className="flex items-center gap-3 py-2.5">
+                  <span className="w-6 h-6 shrink-0 rounded-full bg-muted text-xs font-semibold text-muted-foreground flex items-center justify-center">{i + 1}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-card-foreground truncate">{p.name}</p>
+                    <p className="text-xs text-muted-foreground">{p.qty} sold</p>
+                  </div>
+                  <span className="text-sm font-semibold text-card-foreground shrink-0">{money(p.revenue)}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop: table */}
+            <div className="hidden md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -327,11 +342,12 @@ export default function Reports() {
                     <TableCell className="font-medium text-muted-foreground">{i + 1}</TableCell>
                     <TableCell className="font-medium text-card-foreground">{p.name}</TableCell>
                     <TableCell className="text-right text-card-foreground">{p.qty}</TableCell>
-                    <TableCell className="text-right font-semibold text-card-foreground">{formatKES(p.revenue)}</TableCell>
+                    <TableCell className="text-right font-semibold text-card-foreground">{money(p.revenue)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
+            </div>
           </CardContent>
         </Card>
       )}

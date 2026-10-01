@@ -22,6 +22,7 @@ export default {
     endOfDay: 'نهاية اليوم',
     settings: 'الإعدادات',
     reorderList: 'قائمة إعادة الطلب',
+    more: 'المزيد',
   },
   common: {
     add: 'إضافة',
@@ -128,7 +129,7 @@ export default {
     paymentRecorded: 'تم تسجيل الدفعة',
     txUpdated: 'تم تحديث المعاملة',
     invalidAmount: 'أدخل مبلغًا صحيحًا',
-    amountKes: 'المبلغ (KES)',
+    amountKes: 'المبلغ ({{currency}})',
     descOptional: 'الوصف (اختياري)',
     dueDateOptional: 'تاريخ الاستحقاق (اختياري)',
     dueDate: 'تاريخ الاستحقاق',
@@ -177,8 +178,8 @@ export default {
     notEnoughStock: 'المخزون غير كافٍ',
     outOfStock: 'نفد المخزون',
     cartIsEmpty: 'السلة فارغة',
-    belowCost: '"{{name}}" السعر أقل من التكلفة (KES {{cost}}). ارفع السعر للمتابعة.',
-    priceCantBeBelowCost: 'لا يمكن أن يكون السعر أقل من التكلفة (KES {{cost}})',
+    belowCost: '"{{name}}" السعر أقل من التكلفة ({{currency}} {{cost}}). ارفع السعر للمتابعة.',
+    priceCantBeBelowCost: 'لا يمكن أن يكون السعر أقل من التكلفة ({{currency}} {{cost}})',
     creditRequiresCustomer: 'الدين يتطلب عميلًا مسجلاً',
     selectCustomerFirst: 'اختر عميلًا مسجلاً أولاً لاستخدام الدين',
     paymentChangedToCash: 'تم تغيير الدفع إلى نقدًا — الدين يتطلب عميلاً',
@@ -194,7 +195,7 @@ export default {
   },
   expenses: {
     title: 'المصروفات',
-    totalLabel: 'الإجمالي: KES {{amount}}',
+    totalLabel: 'الإجمالي: {{currency}} {{amount}}',
     addExpense: 'إضافة مصروف',
     titleField: 'العنوان *',
     amountField: 'المبلغ *',
@@ -278,9 +279,9 @@ export default {
     subtotal: 'المجموع الفرعي',
   },
   whatsapp: {
-    debtReminder: 'مرحبًا {{name}}،\n\nهذا تذكير بأن لديك دينًا قدره KES {{amount}}{{dueClause}}.\n\nيرجى السداد في أقرب وقت ممكن.\n\nشكرًا! 🙏',
+    debtReminder: 'مرحبًا {{name}}،\n\nهذا تذكير بأن لديك دينًا قدره {{currency}} {{amount}}{{dueClause}}.\n\nيرجى السداد في أقرب وقت ممكن.\n\nشكرًا! 🙏',
     dueClause: ' المستحق بتاريخ {{date}}',
-    debtSummary: 'مرحبًا {{name}}، لديك دين إجمالي قدره KES {{amount}}. يرجى السداد قريبًا. شكرًا!',
+    debtSummary: 'مرحبًا {{name}}، لديك دين إجمالي قدره {{currency}} {{amount}}. يرجى السداد قريبًا. شكرًا!',
     thanks: 'مرحبًا {{name}}! شكرًا لتعاملك معنا. 🙏',
   },
 };

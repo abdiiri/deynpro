@@ -5,16 +5,14 @@ import { useAllTransactions } from '@/hooks/useCustomers';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { FileSpreadsheet, Search, X, CalendarRange } from 'lucide-react';
+import { FileSpreadsheet, Search, X, CalendarRange, SlidersHorizontal } from 'lucide-react';
 import { format } from 'date-fns';
 import { exportToExcel } from '@/lib/excelExport';
 import { toast } from 'sonner';
-
-function formatKES(amount: number) {
-  return `KES ${amount.toLocaleString()}`;
-}
+import { useMoney } from '@/hooks/useCurrencySettings';
 
 export default function Transactions() {
+  const { fmt: money } = useMoney();
   const { data: shopSettings } = useShopSettings();
   const { t } = useTranslation();
   const { data: transactions, isLoading } = useAllTransactions();
@@ -22,6 +20,7 @@ export default function Transactions() {
   const [search, setSearch] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
 
   const filtered = useMemo(() => {
     let list = transactions || [];
@@ -71,7 +70,7 @@ export default function Transactions() {
 
   return (
     <div className="space-y-4 pb-20 md:pb-0">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{t('transactions.title')}</h1>
           <p className="text-sm text-muted-foreground">{t('transactions.subtitle')}</p>
@@ -85,25 +84,65 @@ export default function Transactions() {
       <div className="space-y-2">
         {/* Search input */}
         <div className="relative">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Search size={15} className="absolute start-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search by customer, description, or type…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="pl-9 h-9 text-sm"
+            className="ps-9 h-9 text-sm"
           />
           {search && (
             <button
               onClick={() => setSearch('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
               <X size={14} />
             </button>
           )}
         </div>
 
-        {/* Date range row */}
-        <div className="flex items-center gap-2">
+        {/* Mobile: Filters chip row (dates collapsed) */}
+        <div className="flex items-center gap-2 flex-wrap sm:hidden">
+          <button
+            type="button"
+            onClick={() => setShowFilters(v => !v)}
+            aria-expanded={showFilters}
+            className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full border text-xs font-medium ${
+              showFilters || fromDate || toDate ? 'bg-primary/10 border-primary/30 text-primary' : 'border-border text-muted-foreground'
+            }`}
+          >
+            <SlidersHorizontal size={13} /> Filters
+          </button>
+          {fromDate && (
+            <button type="button" onClick={() => setFromDate('')} className="inline-flex items-center gap-1 h-8 px-3 rounded-full bg-muted text-xs">
+              From {format(new Date(fromDate + 'T00:00:00'), 'd MMM')} <X size={12} />
+            </button>
+          )}
+          {toDate && (
+            <button type="button" onClick={() => setToDate('')} className="inline-flex items-center gap-1 h-8 px-3 rounded-full bg-muted text-xs">
+              To {format(new Date(toDate + 'T00:00:00'), 'd MMM')} <X size={12} />
+            </button>
+          )}
+          {hasFilters && (
+            <button type="button" onClick={clearFilters} className="text-xs text-muted-foreground underline ms-auto">Clear all</button>
+          )}
+        </div>
+
+        {showFilters && (
+          <div className="grid grid-cols-2 gap-2 sm:hidden">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">From</label>
+              <Input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="h-10 text-base" />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">To</label>
+              <Input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="h-10 text-base" />
+            </div>
+          </div>
+        )}
+
+        {/* Desktop: inline date range row */}
+        <div className="hidden sm:flex items-center gap-2">
           <CalendarRange size={15} className="text-muted-foreground shrink-0" />
           <Input
             type="date"
@@ -152,7 +191,7 @@ export default function Transactions() {
                 </p>
               </div>
               <span className={`text-sm font-bold ${tx.type === 'payment' ? 'text-success' : 'text-destructive'}`}>
-                {tx.type === 'payment' ? '-' : '+'}{formatKES(tx.amount)}
+                {tx.type === 'payment' ? '-' : '+'}{money(tx.amount)}
               </span>
             </CardContent>
           </Card>

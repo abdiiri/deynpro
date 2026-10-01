@@ -22,6 +22,7 @@ export default {
     endOfDay: 'Mwisho wa Siku',
     settings: 'Mipangilio',
     reorderList: 'Orodha ya Kuagiza',
+    more: 'Zaidi',
   },
   common: {
     add: 'Ongeza',
@@ -128,7 +129,7 @@ export default {
     paymentRecorded: 'Malipo yamerekodiwa',
     txUpdated: 'Muamala umesasishwa',
     invalidAmount: 'Weka kiasi sahihi',
-    amountKes: 'Kiasi (KES)',
+    amountKes: 'Kiasi ({{currency}})',
     descOptional: 'Maelezo (si lazima)',
     dueDateOptional: 'Tarehe ya kulipa (si lazima)',
     dueDate: 'Tarehe ya kulipa',
@@ -177,8 +178,8 @@ export default {
     notEnoughStock: 'Hisa haitoshi',
     outOfStock: 'Imekwisha',
     cartIsEmpty: 'Kikapu kiko tupu',
-    belowCost: '"{{name}}" bei iko chini ya gharama (KES {{cost}}). Ongeza bei kuendelea.',
-    priceCantBeBelowCost: 'Bei haiwezi kuwa chini ya gharama (KES {{cost}})',
+    belowCost: '"{{name}}" bei iko chini ya gharama ({{currency}} {{cost}}). Ongeza bei kuendelea.',
+    priceCantBeBelowCost: 'Bei haiwezi kuwa chini ya gharama ({{currency}} {{cost}})',
     creditRequiresCustomer: 'Deni linahitaji mteja aliyesajiliwa',
     selectCustomerFirst: 'Chagua mteja aliyesajiliwa kwanza kutumia mkopo',
     paymentChangedToCash: 'Malipo yamebadilishwa kuwa Pesa Taslimu — deni linahitaji mteja',
@@ -194,7 +195,7 @@ export default {
   },
   expenses: {
     title: 'Matumizi',
-    totalLabel: 'Jumla: KES {{amount}}',
+    totalLabel: 'Jumla: {{currency}} {{amount}}',
     addExpense: 'Ongeza Matumizi',
     titleField: 'Kichwa *',
     amountField: 'Kiasi *',
@@ -278,9 +279,9 @@ export default {
     subtotal: 'Jumla ndogo',
   },
   whatsapp: {
-    debtReminder: 'Habari {{name}},\n\nHii ni ukumbusho kwamba una deni la KES {{amount}}{{dueClause}}.\n\nTafadhali lipa haraka iwezekanavyo.\n\nAsante! 🙏',
+    debtReminder: 'Habari {{name}},\n\nHii ni ukumbusho kwamba una deni la {{currency}} {{amount}}{{dueClause}}.\n\nTafadhali lipa haraka iwezekanavyo.\n\nAsante! 🙏',
     dueClause: ' ambalo lilipaswa kulipwa tarehe {{date}}',
-    debtSummary: 'Habari {{name}}, una deni la jumla KES {{amount}}. Tafadhali lipa haraka. Asante!',
+    debtSummary: 'Habari {{name}}, una deni la jumla {{currency}} {{amount}}. Tafadhali lipa haraka. Asante!',
     thanks: 'Habari {{name}}! Asante kwa biashara yako. 🙏',
   },
 };

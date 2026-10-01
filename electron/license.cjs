@@ -325,14 +325,46 @@ function parseAndVerify(code) {
   return result;
 }
 
+async function registerTrialDevice(deviceId, deviceLabel, trialExpiresAt, force) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return;
+  if (!force) {
+    const lastPing = licenseStore.get('trialLastPing') || 0;
+    if (Date.now() - lastPing < 24 * 60 * 60 * 1000) return; // once a day is plenty
+  }
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/rpc/register_trial_device`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      },
+      body: JSON.stringify({
+        p_device_id: deviceId,
+        p_device_label: deviceLabel,
+        p_trial_expires_at: new Date(trialExpiresAt).toISOString(),
+      }),
+    });
+    licenseStore.set('trialLastPing', Date.now());
+  } catch {
+    // Offline — just try again next time. Never blocks the trial.
+  }
+}
+
 function getTrialStatus() {
   let start = licenseStore.get('trialStart');
+  const isNewTrial = !start;
   if (!start) {
     start = Date.now();
     licenseStore.set('trialStart', start);
   }
   const expiresAt = start + TRIAL_DAYS * 24 * 60 * 60 * 1000;
   const trialDaysLeft = Math.max(0, Math.ceil((expiresAt - Date.now()) / (24 * 60 * 60 * 1000)));
+
+  // Best-effort, fire-and-forget — see registerTrialDevice above. Purely
+  // so license-admin can see this trial exists; never blocks anything.
+  registerTrialDevice(getDeviceId(), getDeviceLabel(), expiresAt, isNewTrial).catch(() => {});
+
   return { expiresAt, expired: Date.now() > expiresAt, trialDaysLeft };
 }
 

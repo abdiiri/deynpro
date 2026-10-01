@@ -27,6 +27,22 @@ function openWhatsApp(phone: string, message: string) {
   window.open(`https://wa.me/${num}?text=${encodeURIComponent(message)}`, '_blank');
 }
 
+/** 1250000 -> "1.3M", 45000 -> "45k", 800 -> "800". Keeps chart axes narrow on phones. */
+const compactNumber = (v: number) => {
+  const a = Math.abs(v);
+  if (a >= 1_000_000) return `${+(v / 1_000_000).toFixed(1)}M`;
+  if (a >= 1_000) return `${+(v / 1_000).toFixed(a >= 10_000 ? 0 : 1)}k`;
+  return String(Math.round(v));
+};
+
+/** Single-line axis label; full names are listed below the chart. */
+const truncateLabel = (name: string, max = 12) => (name.length > max ? `${name.slice(0, max - 1)}…` : name);
+
+/** Category tick that never wraps (recharts' default wraps on spaces and stacks into neighbouring rows). */
+const SingleLineTick = ({ x, y, payload }: any) => (
+  <text x={x} y={y} dy={4} textAnchor="end" fontSize={11} fill="#666">{truncateLabel(String(payload.value))}</text>
+);
+
 export default function Dashboard() {
   const { t } = useTranslation();
   const { data: currencyData } = useCurrencySettings();
@@ -306,8 +322,8 @@ export default function Dashboard() {
           <CardContent>
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={stats!.chartData}>
-                <XAxis dataKey="month" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} interval={0} />
+                <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={40} tickFormatter={compactNumber} />
                 <Tooltip formatter={(value: number) => formatKES(value)} />
                 <Bar dataKey="amount" fill="hsl(160, 60%, 38%)" radius={[6, 6, 0, 0]} />
               </BarChart>
@@ -337,10 +353,10 @@ export default function Dashboard() {
                   tickLine={false}
                   interval={4}
                 />
-                <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `${Math.round(v / 1000)}k`} />
+                <YAxis tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={compactNumber} />
                 <Tooltip
                   formatter={(value: number, name: string) => [
-                    `KES ${value.toLocaleString()}`,
+                    formatKES(value),
                     name === 'profit' ? 'Profit' : 'Expenses'
                   ]}
                 />
@@ -386,8 +402,8 @@ export default function Dashboard() {
           <CardContent>
             <ResponsiveContainer width="100%" height={190}>
               <BarChart data={bestSellers} layout="vertical" margin={{ left: 0, right: 8 }}>
-                <XAxis type="number" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => String(Math.round(v).toLocaleString())} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={110} />
+                <XAxis type="number" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={compactNumber} />
+                <YAxis type="category" dataKey="name" tick={<SingleLineTick />} axisLine={false} tickLine={false} width={96} />
                 <Tooltip formatter={(value: number) => formatKES(value)} />
                 <Bar dataKey="revenue" radius={[0, 6, 6, 0]}>
                   {bestSellers.map((_, i) => (
@@ -472,6 +488,7 @@ export default function Dashboard() {
                       const msg = t('whatsapp.debtReminder', {
                         name: tx.customers.name,
                         amount: tx.amount.toLocaleString(),
+                        currency: currencyData?.base_currency || 'KES',
                         dueClause,
                       });
                       openWhatsApp(tx.customers.phone, msg);

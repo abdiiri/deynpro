@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { getBaseCurrencyCode } from '@/hooks/useCurrencySettings';
 
 export interface ThermalReceiptData {
   saleId: string;
@@ -29,7 +30,9 @@ const PM: Record<string, string> = {
 };
 
 function buildPrintData(r: ThermalReceiptData) {
-  const fmt = (n: number) => `KES ${n.toLocaleString('en-KE', { minimumFractionDigits: 2 })}`;
+  // Thermal printers often lack glyphs for symbols like ₦ or €, so print the ISO code.
+  const currencyCode = getBaseCurrencyCode();
+  const fmt = (n: number) => `${currencyCode} ${n.toLocaleString('en-KE', { minimumFractionDigits: 2 })}`;
   const pad = (left: string, right: string, width = 32) => {
     const gap = Math.max(1, width - left.length - right.length);
     return left + ' '.repeat(gap) + right;

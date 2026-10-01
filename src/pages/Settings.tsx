@@ -451,7 +451,7 @@ export default function Settings() {
                       onChange={e => { setPinInput(e.target.value.replace(/\D/g, '')); setPinError(''); }}
                       placeholder="••••"
                     />
-                    <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                    <button type="button" className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                       onClick={() => setPinShow(v => !v)}>
                       {pinShow ? <EyeOff size={16}/> : <Eye size={16}/>}
                     </button>
@@ -490,7 +490,7 @@ export default function Settings() {
                     onChange={e => { setPinInput(e.target.value.replace(/\D/g, '')); setPinError(''); }}
                     placeholder="Current PIN"
                   />
-                  <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  <button type="button" className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground"
                     onClick={() => setPinShow(v => !v)}>
                     {pinShow ? <EyeOff size={16}/> : <Eye size={16}/>}
                   </button>

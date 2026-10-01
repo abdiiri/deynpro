@@ -1,7 +1,7 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useSyncStatus } from '@/hooks/useSyncStatus';
-import { LayoutDashboard, Users, ArrowLeftRight, Menu, X, Package, Truck, ShoppingCart, Receipt, Bell, BarChart3, FileText, Settings as SettingsIcon, PackagePlus, Moon, Wifi, WifiOff, RefreshCw, Server, Globe, Mail, MessageCircle, Clock, LogOut, Loader2 } from 'lucide-react';
+import { LayoutDashboard, Users, ArrowLeftRight, Menu, X, Package, Truck, ShoppingCart, Receipt, Bell, BarChart3, FileText, Settings as SettingsIcon, PackagePlus, Moon, Wifi, WifiOff, RefreshCw, Server, Globe, Mail, MessageCircle, Clock, LogOut, Loader2, MoreHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useShopSettings } from '@/hooks/useShopSettings';
 import { useStockAlerts } from '@/hooks/useStockAlerts';
@@ -30,6 +30,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const { data: alerts } = useStockAlerts();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [signOutOpen, setSignOutOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const sync = useSyncStatus();
@@ -64,15 +65,25 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   const unreadAlerts = alerts?.length || 0;
 
+  // Mobile bottom nav: first 4 tabs are pinned, everything else lives under "More"
+  const primaryNav = navItems.slice(0, 4);
+  const moreNav = navItems.slice(4);
+  const moreActive = moreNav.some(item => item.to === location.pathname);
+
+  // Close the "More" sheet on navigation
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [location.pathname]);
+
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-background flex flex-col w-full max-w-[100vw] overflow-x-hidden">
       {/* Menu Bar - Desktop only */}
       <MenuBar />
       
       {/* Mobile header */}
-      <header className="sticky top-0 z-50 flex items-center justify-between px-4 py-3 gradient-primary md:hidden">
-        <h1 className="text-lg font-bold text-primary-foreground tracking-tight">{appName}</h1>
-        <div className="flex items-center gap-2">
+      <header className="sticky top-0 z-50 flex items-center justify-between gap-2 px-3 sm:px-4 py-3 gradient-primary md:hidden">
+        <h1 className="min-w-0 flex-1 truncate text-base sm:text-lg font-bold text-primary-foreground tracking-tight">{appName}</h1>
+        <div className="flex shrink-0 items-center gap-2">
           <LanguageSwitcher compact />
           <ThemeToggle compact />
           <Link to="/notifications" className="relative text-primary-foreground">
@@ -93,7 +104,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       {mobileOpen && (
         <div className="fixed inset-0 z-40 md:hidden" onClick={() => setMobileOpen(false)}>
           <div className="absolute inset-0 bg-foreground/20" />
-          <nav className="absolute start-0 top-0 bottom-0 w-64 bg-card p-6 shadow-xl overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <nav className="absolute start-0 top-0 bottom-0 w-64 max-w-[85vw] bg-card p-6 shadow-xl overflow-y-auto" onClick={e => e.stopPropagation()}>
             <h2 className="text-xl font-bold text-primary mb-6">{appName}</h2>
             <div className="space-y-1">
               {navItems.map(item => (
@@ -130,7 +141,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      <div className="flex flex-1">
+      <div className="flex flex-1 min-w-0">
         {/* Desktop sidebar */}
         <aside className="hidden md:flex md:w-56 lg:w-64 flex-col fixed inset-y-0 start-0 bg-card border-e border-border z-30">
           <div className="p-6 pb-4">
@@ -177,27 +188,85 @@ export function AppLayout({ children }: { children: ReactNode }) {
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 md:ms-56 lg:ms-64 min-h-screen">
-          <div className="p-4 md:p-6 lg:p-8 pb-14 max-w-6xl mx-auto">
+        <main className="flex-1 min-w-0 w-full md:ms-56 lg:ms-64 min-h-screen">
+          <div className="p-3 sm:p-4 md:p-6 lg:p-8 pb-24 md:pb-14 max-w-6xl mx-auto min-w-0">
             {children}
           </div>
         </main>
       </div>
 
-      {/* Mobile bottom nav - top 5 items */}
-      <nav className="fixed bottom-0 start-0 end-0 z-50 bg-card border-t border-border flex md:hidden">
-        {navItems.slice(0, 5).map(item => (
+      {/* Mobile "More" sheet - remaining tabs */}
+      {moreOpen && (
+        <div className="fixed inset-0 z-[60] md:hidden" onClick={() => setMoreOpen(false)}>
+          <div className="absolute inset-0 bg-foreground/30" />
+          <div
+            className="absolute bottom-0 start-0 end-0 bg-card rounded-t-2xl border-t border-border shadow-2xl max-h-[75vh] overflow-y-auto pb-[env(safe-area-inset-bottom)] animate-in slide-in-from-bottom duration-200"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 pt-4 pb-2">
+              <h2 className="text-base font-bold text-foreground">{t('nav.more')}</h2>
+              <button
+                onClick={() => setMoreOpen(false)}
+                className="p-1 rounded-full text-muted-foreground hover:bg-muted"
+                aria-label={t('common.cancel')}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2 px-3 pb-4">
+              {moreNav.map(item => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  onClick={() => setMoreOpen(false)}
+                  className={`relative flex flex-col items-center justify-center gap-1.5 rounded-xl px-1 py-3 text-xs font-medium transition-colors ${
+                    location.pathname === item.to
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted/60 text-foreground hover:bg-muted'
+                  }`}
+                >
+                  <item.icon size={22} />
+                  <span className="w-full truncate text-center">{item.label}</span>
+                  {item.to === '/notifications' && unreadAlerts > 0 && (
+                    <span className="absolute top-1.5 end-1.5 bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+                      {unreadAlerts}
+                    </span>
+                  )}
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile bottom nav - 4 pinned tabs + More */}
+      <nav className="fixed bottom-0 start-0 end-0 z-50 bg-card border-t border-border flex md:hidden pb-[env(safe-area-inset-bottom)]">
+        {primaryNav.map(item => (
           <Link
             key={item.to}
             to={item.to}
-            className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium transition-colors ${
+            className={`flex-1 min-w-0 flex flex-col items-center gap-0.5 px-0.5 py-2 text-[10px] sm:text-xs font-medium transition-colors ${
               location.pathname === item.to ? 'text-primary' : 'text-muted-foreground'
             }`}
           >
             <item.icon size={20} />
-            {item.label}
+            <span className="w-full truncate text-center">{item.label}</span>
           </Link>
         ))}
+        <button
+          type="button"
+          onClick={() => setMoreOpen(o => !o)}
+          aria-expanded={moreOpen}
+          className={`relative flex-1 min-w-0 flex flex-col items-center gap-0.5 px-0.5 py-2 text-[10px] sm:text-xs font-medium transition-colors ${
+            moreOpen || moreActive ? 'text-primary' : 'text-muted-foreground'
+          }`}
+        >
+          <MoreHorizontal size={20} />
+          <span className="w-full truncate text-center">{t('nav.more')}</span>
+          {unreadAlerts > 0 && (
+            <span className="absolute top-1.5 end-[22%] h-2 w-2 rounded-full bg-destructive" />
+          )}
+        </button>
       </nav>
       {/* Support ticker — desktop only */}
       <div className="hidden md:block fixed bottom-0 left-56 lg:left-64 right-0 z-20 bg-[hsl(142,60%,32%)] py-3 overflow-hidden">

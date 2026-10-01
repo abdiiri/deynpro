@@ -29,6 +29,7 @@
 import { getDeviceId, getDeviceLabel } from "@/lib/deviceId";
 import { registerDevice, checkShopStatus } from "@/lib/deviceRegistry";
 import { checkShopSnapshot, isLocalDataEmpty, pullShopSnapshot, pushShopSnapshot, optOutOfPull } from "@/lib/cloudSnapshot";
+import { registerTrialDevice } from "@/lib/trialRegistry";
 
 const PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEATqyRJOdCvdqI2tnKGC8E29tWjOF82sf8DmkYaIsv5aI=
@@ -128,6 +129,7 @@ async function parseAndVerify(code: string): Promise<ParsedLicense> {
 /** Starts (if needed) and reads the no-code free trial window for this device. */
 function getTrialStatus() {
   let start = localStorage.getItem(TRIAL_START_KEY);
+  const isNewTrial = !start;
   if (!start) {
     start = String(Date.now());
     localStorage.setItem(TRIAL_START_KEY, start);
@@ -135,6 +137,13 @@ function getTrialStatus() {
   const startMs = Number(start);
   const expiresAt = startMs + TRIAL_DAYS * 24 * 60 * 60 * 1000;
   const trialDaysLeft = Math.max(0, Math.ceil((expiresAt - Date.now()) / (24 * 60 * 60 * 1000)));
+
+  // Best-effort, fire-and-forget — see trialRegistry.ts. Never awaited,
+  // never blocks the trial, purely so license-admin can see it exists.
+  // Forced on a brand new trial (worth the extra call to catch it right
+  // away), otherwise throttled to about once a day.
+  void registerTrialDevice(getDeviceId(), getDeviceLabel(), expiresAt, isNewTrial);
+
   return { startMs, expiresAt, expired: Date.now() > expiresAt, trialDaysLeft };
 }
 

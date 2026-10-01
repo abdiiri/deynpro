@@ -7,6 +7,7 @@ import { Printer, Download, X, Zap } from 'lucide-react';
 import { format } from 'date-fns';
 import { useThermalPrinter } from '@/hooks/useThermalPrinter';
 import { toast } from 'sonner';
+import { useMoney } from '@/hooks/useCurrencySettings';
 
 interface ReceiptItem {
   name: string;
@@ -33,15 +34,13 @@ interface Props {
   receipt: ReceiptData | null;
 }
 
-function formatKES(n: number) {
-  return `KES ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 const PM_LABEL: Record<string, string> = {
   cash: 'CASH', mpesa: 'M-PESA', card: 'CARD', credit: 'CREDIT'
 };
 
 export function ReceiptModal({ open, onClose, receipt }: Props) {
+  const { fmt } = useMoney();
+  const money = (n: number) => fmt(n, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const printRef = useRef<HTMLDivElement>(null);
   // Thermal printer (Electron only — invisible in browser/PWA)
   // Must be called BEFORE any conditional return to follow Rules of Hooks
@@ -223,7 +222,7 @@ export function ReceiptModal({ open, onClose, receipt }: Props) {
               <tbody>
                 <tr className="total-row">
                   <td className="bold">TOTAL</td>
-                  <td className="r bold">{formatKES(receipt.total)}</td>
+                  <td className="r bold">{money(receipt.total)}</td>
                 </tr>
               </tbody>
             </table>

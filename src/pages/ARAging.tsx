@@ -9,12 +9,11 @@ import { AlertTriangle, Download, Clock } from 'lucide-react';
 import { buildArAgingReport, sumBuckets } from '@/lib/arAging';
 import { exportToExcel } from '@/lib/excelExport';
 import { toast } from 'sonner';
-
-function formatKES(amount: number) {
-  return `KES ${amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-}
+import { useMoney } from '@/hooks/useCurrencySettings';
 
 export default function ARAging() {
+  const { fmt } = useMoney();
+  const money = (n: number) => fmt(n, { maximumFractionDigits: 0 });
   const { t } = useTranslation();
   const { data: customers, isLoading: custLoading } = useCustomers();
   const { data: allTx, isLoading: txLoading } = useAllTransactions();
@@ -72,7 +71,7 @@ export default function ARAging() {
           <Card key={i} className="shadow-card">
             <CardContent className="p-3 text-center">
               <p className="text-[11px] text-muted-foreground">{b.label}</p>
-              <p className={`text-sm md:text-base font-bold ${b.tone}`}>{formatKES(b.value)}</p>
+              <p className={`text-sm md:text-base font-bold ${b.tone}`}>{money(b.value)}</p>
             </CardContent>
           </Card>
         ))}
@@ -83,7 +82,7 @@ export default function ARAging() {
           <CardTitle className="text-base flex items-center justify-between">
             <span>{t('arAging.byCustomer')}</span>
             <span className="text-sm font-normal text-muted-foreground">
-              {t('arAging.totalOutstanding')}: <span className="font-bold text-destructive">{formatKES(totals.total)}</span>
+              {t('arAging.totalOutstanding')}: <span className="font-bold text-destructive">{money(totals.total)}</span>
             </span>
           </CardTitle>
         </CardHeader>
@@ -95,7 +94,48 @@ export default function ARAging() {
           ) : rows.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">{t('arAging.noData')}</p>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            {/* Mobile: one card per customer */}
+            <div className="md:hidden space-y-2">
+              {rows.map(r => {
+                const buckets = [
+                  { label: t('arAging.current'), value: r.current, tone: 'text-success' },
+                  { label: t('arAging.d1_30'), value: r.d1_30, tone: 'text-foreground' },
+                  { label: t('arAging.d31_60'), value: r.d31_60, tone: 'text-amber-600 dark:text-amber-400' },
+                  { label: t('arAging.d61_90'), value: r.d61_90, tone: 'text-orange-600 dark:text-orange-400' },
+                  { label: t('arAging.d90plus'), value: r.d90plus, tone: 'text-destructive' },
+                ];
+                return (
+                  <div key={r.customerId} className="border border-border rounded-lg p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <Link to={`/customers/${r.customerId}`} className="font-medium text-primary hover:underline min-w-0 truncate">
+                        {r.customerName}
+                        {(r.d61_90 > 0 || r.d90plus > 0) && (
+                          <AlertTriangle size={12} className="inline ms-1.5 text-destructive" />
+                        )}
+                      </Link>
+                      <div className="text-right shrink-0">
+                        <p className="text-[10px] text-muted-foreground leading-none">{t('common.total')}</p>
+                        <p className="text-base font-bold">{money(r.total)}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-5 gap-1 pt-2 border-t border-border">
+                      {buckets.map((b, i) => (
+                        <div key={i} className="min-w-0 text-center">
+                          <p className="text-[9px] leading-tight text-muted-foreground truncate">{b.label}</p>
+                          <p className={`text-[11px] font-semibold ${b.value > 0 ? b.tone : 'text-muted-foreground'}`}>
+                            {b.value > 0 ? b.value.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop: table */}
+            <div className="hidden md:block overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -119,17 +159,18 @@ export default function ARAging() {
                           <AlertTriangle size={12} className="inline ms-1.5 text-destructive" />
                         )}
                       </TableCell>
-                      <TableCell className="text-right text-success">{r.current > 0 ? formatKES(r.current) : '—'}</TableCell>
-                      <TableCell className="text-right">{r.d1_30 > 0 ? formatKES(r.d1_30) : '—'}</TableCell>
-                      <TableCell className="text-right text-amber-600 dark:text-amber-400">{r.d31_60 > 0 ? formatKES(r.d31_60) : '—'}</TableCell>
-                      <TableCell className="text-right text-orange-600 dark:text-orange-400">{r.d61_90 > 0 ? formatKES(r.d61_90) : '—'}</TableCell>
-                      <TableCell className="text-right text-destructive">{r.d90plus > 0 ? formatKES(r.d90plus) : '—'}</TableCell>
-                      <TableCell className="text-right font-bold">{formatKES(r.total)}</TableCell>
+                      <TableCell className="text-right text-success">{r.current > 0 ? money(r.current) : '—'}</TableCell>
+                      <TableCell className="text-right">{r.d1_30 > 0 ? money(r.d1_30) : '—'}</TableCell>
+                      <TableCell className="text-right text-amber-600 dark:text-amber-400">{r.d31_60 > 0 ? money(r.d31_60) : '—'}</TableCell>
+                      <TableCell className="text-right text-orange-600 dark:text-orange-400">{r.d61_90 > 0 ? money(r.d61_90) : '—'}</TableCell>
+                      <TableCell className="text-right text-destructive">{r.d90plus > 0 ? money(r.d90plus) : '—'}</TableCell>
+                      <TableCell className="text-right font-bold">{money(r.total)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>
